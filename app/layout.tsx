@@ -1,13 +1,8 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, DM_Sans } from "next/font/google";
+import { DM_Sans, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { AgentationProvider } from "@/components/AgentationProvider";
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-});
+import { Providers } from "@/components/Providers";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -15,9 +10,17 @@ const dmSans = DM_Sans({
   display: "swap",
 });
 
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-serif",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Ship Studio",
-  description: "How professionals build with AI. No coding required.",
+  title: "Curio",
+  description: "Learning made for curious minds.",
 };
 
 export default function RootLayout({
@@ -26,9 +29,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${spaceGrotesk.variable} ${dmSans.variable}`}>
+    <html lang="en" className={`${dmSans.variable} ${instrumentSerif.variable}`}>
       <body className="font-[family-name:var(--font-body)] antialiased">
-        {children}
+        <Providers>
+          {children}
+        </Providers>
         <AgentationProvider />
       </body>
     </html>

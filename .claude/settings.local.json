@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(gunzip -c \"/Users/ransegall/.claude/projects/-Users-ransegall-ShipStudio-homeschooling/4f669b85-ddaf-42b2-870f-fd63d765f026/tool-results/webfetch-1777009780847-r6oztt.bin\")",
+      "Bash(tar -t)",
+      "Bash(gunzip -c \"/Users/ransegall/.claude/projects/-Users-ransegall-ShipStudio-homeschooling/4f669b85-ddaf-42b2-880f-fd63d765f026/tool-results/webfetch-1777009780847-r6oztt.bin\")",
+      "Bash(tar -xO homeschooling/project/src/kid-home.jsx)",
+      "Bash(tar -xO homeschooling/project/src/parent-dashboard.jsx)",
+      "Bash(npx supabase *)",
+      "Bash(curl *)",
+      "Bash(npx tsc *)",
+      "Bash(tar -xO homeschooling/project/src/kid-login.jsx)",
+      "Bash(tar -xO homeschooling/project/src/primitives.jsx)"
+    ]
+  }
+}

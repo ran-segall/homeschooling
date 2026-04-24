@@ -1,31 +1,45 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --muted: #78716c;
-  --accent: #dc2626;
+  --bg: #F6F3EC;
+  --card: #FFFFFF;
+  --ink: #171614;
+  --ink2: rgba(23, 22, 20, 0.60);
+  --ink3: rgba(23, 22, 20, 0.38);
+  --line: rgba(23, 22, 20, 0.08);
+
+  --lime: oklch(0.78 0.18 130);
+  --lime-bg: oklch(0.95 0.05 130);
+  --lime-fg: oklch(0.35 0.12 130);
+
+  --violet: oklch(0.60 0.20 295);
+  --violet-bg: oklch(0.95 0.04 295);
+  --violet-fg: oklch(0.40 0.16 295);
+
+  --amber: oklch(0.74 0.16 65);
+  --amber-bg: oklch(0.96 0.05 65);
+  --amber-fg: oklch(0.42 0.12 65);
+
+  --reef: #4F7942;
+  --tommy: #3B5FA0;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-accent: var(--accent);
   --font-sans: var(--font-body);
-  --font-display: var(--font-display);
+  --font-serif: var(--font-serif);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #fafaf9;
-    --muted: #a8a29e;
-    --accent: #f87171;
-  }
+/*
+  Force light palette always — this is a kid app that should
+  never go dark, regardless of system preference.
+*/
+html {
+  color-scheme: light;
+  background-color: #F6F3EC;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
