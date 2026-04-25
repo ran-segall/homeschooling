@@ -19,7 +19,9 @@ export async function POST(req: NextRequest) {
 
   const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
   try {
-    const parsed = JSON.parse(text)
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No JSON')
+    const parsed = JSON.parse(jsonMatch[0])
     return NextResponse.json(parsed)
   } catch {
     return NextResponse.json({ hebrew: '—', transliteration: '', meaning: word }, { status: 200 })

@@ -57,7 +57,7 @@ function ReadableText({ text }: { text: string }) {
               <div style={{ fontSize: 13, opacity: 0.6 }}>Translating…</div>
             ) : translation ? (
               <>
-                <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, marginBottom: 2 }}>{translation.hebrew}</div>
+                <div style={{ fontFamily: 'var(--font-hebrew)', fontSize: 24, marginBottom: 2, direction: 'rtl' }}>{translation.hebrew}</div>
                 <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{translation.transliteration}</div>
                 <div style={{ fontSize: 12, opacity: 0.55 }}>{translation.meaning}</div>
               </>

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Sans, Instrument_Serif } from "next/font/google";
+import { DM_Sans, Instrument_Serif, Noto_Sans_Hebrew } from "next/font/google";
 import "./globals.css";
 import { AgentationProvider } from "@/components/AgentationProvider";
 import { Providers } from "@/components/Providers";
@@ -16,6 +16,13 @@ const instrumentSerif = Instrument_Serif({
   style: ["normal", "italic"],
   variable: "--font-serif",
   display: "swap",
+})
+
+const notoHebrew = Noto_Sans_Hebrew({
+  subsets: ["hebrew"],
+  weight: ["400", "600"],
+  variable: "--font-hebrew",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -29,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${instrumentSerif.variable}`}>
+    <html lang="en" className={`${dmSans.variable} ${instrumentSerif.variable} ${notoHebrew.variable}`}>
       <body className="font-[family-name:var(--font-body)] antialiased">
         <Providers>
           {children}

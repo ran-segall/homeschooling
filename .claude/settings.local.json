@@ -11,7 +11,10 @@
       "Bash(curl *)",
       "Bash(npx tsc *)",
       "Bash(tar -xO homeschooling/project/src/kid-login.jsx)",
-      "Bash(tar -xO homeschooling/project/src/primitives.jsx)"
+      "Bash(tar -xO homeschooling/project/src/primitives.jsx)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

@@ -100,7 +100,7 @@ export default function HomePage() {
           <button
             onClick={() => router.push(`/lesson/${nextLesson.id}`)}
             style={{
-              width: '100%', background: 'var(--ink)', borderRadius: 20,
+              width: '100%', background: '#171614', borderRadius: 20,
               padding: '28px 28px', border: 'none', cursor: 'pointer',
               textAlign: 'left', marginBottom: 20, display: 'block',
               transition: 'opacity 100ms ease',

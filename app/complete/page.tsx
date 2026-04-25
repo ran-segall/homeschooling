@@ -54,14 +54,14 @@ function CompleteScreen() {
     : null
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--ink)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }}>
 
       <div style={{ marginBottom: 32 }}>
         <div style={{ fontSize: 64, lineHeight: 1, marginBottom: 12 }}>✦</div>
-        <div style={{ fontFamily: 'var(--font-serif)', fontSize: 72, color: 'var(--lime)', lineHeight: 1, marginBottom: 4 }}>
+        <div style={{ fontFamily: 'var(--font-serif)', fontSize: 72, color: 'var(--lime-fg)', lineHeight: 1, marginBottom: 4 }}>
           +{xpAnimated}
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           XP earned
         </div>
       </div>
@@ -69,11 +69,11 @@ function CompleteScreen() {
       {lesson && (
         <div style={{ marginBottom: 40 }}>
           {subject && (
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <p style={{ fontSize: 13, color: 'var(--ink3)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               {subject.label} · Lesson complete
             </p>
           )}
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 28, color: '#fff', margin: 0, fontWeight: 400 }}>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 28, color: 'var(--ink)', margin: 0, fontWeight: 400 }}>
             {lesson.title}
           </h1>
         </div>
@@ -81,20 +81,20 @@ function CompleteScreen() {
 
       {displayProgress && (
         <div style={{ display: 'flex', gap: 16, marginBottom: 48 }}>
-          <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: '14px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Level {displayProgress.level}</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>Current level</div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>Level {displayProgress.level}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2 }}>Current level</div>
           </div>
-          <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: '14px 20px', textAlign: 'center' }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--amber)' }}>🔥 {displayProgress.streak}</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>Day streak</div>
+            <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2 }}>Day streak</div>
           </div>
         </div>
       )}
 
       <button onClick={() => router.push('/home')} style={{
         padding: '16px 40px', fontSize: 16, fontWeight: 600,
-        background: 'var(--lime)', color: 'var(--lime-fg)',
+        background: 'var(--ink)', color: '#fff',
         border: 'none', borderRadius: 100, cursor: 'pointer',
         fontFamily: 'var(--font-body)',
       }}>

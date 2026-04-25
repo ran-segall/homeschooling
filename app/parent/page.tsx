@@ -685,13 +685,28 @@ function StrugglePanel({ sessions, kids }: { sessions: StoredSession[]; kids: Pr
 
 // ─── Dinner prompts ───────────────────────────────────────────
 
-const DINNER_PROMPTS = [
-  { kid: 'Both',  subject: 'Philosophy', q: 'If we replaced every part of our car over time — would it still be our car?',             meta: 'From today\'s lesson' },
-  { kid: 'Tommy', subject: 'Money',      q: 'If you save money and it earns interest each year, why do you end up with way more than you saved?', meta: 'Tommy got stuck here' },
-  { kid: 'Reef',  subject: 'Geography',  q: 'Why do maps always lie a little — and which lie is the most useful?',                     meta: 'Helps unlock next lesson' },
-]
+function ConversationPanel({ sessions, kids }: { sessions: StoredSession[]; kids: Profile[] }) {
+  const { getLessonById } = useAppData()
 
-function ConversationPanel() {
+  const prompts = sessions
+    .slice(0, 10)
+    .flatMap(s => {
+      const lesson = getLessonById(s.lesson_id)
+      if (!lesson) return []
+      const kid = kids.find(k => k.id === s.kid_id)
+      const subjectLabel = SUBJECTS.find(sub => sub.id === lesson.subject_id)?.label ?? lesson.subject_id
+      return lesson.steps
+        .filter(step => step.type === 'Socratic')
+        .map(step => ({
+          kidName: kid?.name ?? '—',
+          subject: subjectLabel,
+          q: String(step.content.question ?? ''),
+        }))
+    })
+    .slice(0, 3)
+
+  if (prompts.length === 0) return null
+
   return (
     <div style={{ background: C.ink, borderRadius: 16, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -702,14 +717,13 @@ function ConversationPanel() {
         </div>
       </div>
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {DINNER_PROMPTS.map((p, i) => (
+        {prompts.map((p, i) => (
           <div key={i} style={{ padding: 14, borderRadius: 14, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 9.5, color: C.lime, letterSpacing: '.14em', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>{p.kid}</span>
+              <span style={{ fontSize: 9.5, color: C.lime, letterSpacing: '.14em', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>{p.kidName}</span>
               <span style={{ fontSize: 11, color: '#9B988C' }}>· {p.subject}</span>
             </div>
             <div style={{ fontFamily: 'var(--font-serif)', fontSize: 16, color: '#F6F3EC', lineHeight: 1.3 }}>{p.q}</div>
-            <div style={{ fontSize: 11, color: '#7A7770', marginTop: 6 }}>{p.meta}</div>
           </div>
         ))}
       </div>
@@ -772,10 +786,12 @@ export default function ParentPage() {
             </div>
           )}
 
-          <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
-            <ConversationPanel />
-            <StrugglePanel sessions={completedSessions} kids={kids} />
-          </div>
+          {(completedSessions.length > 0) && (
+            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
+              <ConversationPanel sessions={completedSessions} kids={kids} />
+              <StrugglePanel sessions={completedSessions} kids={kids} />
+            </div>
+          )}
         </div>
       )}
 
