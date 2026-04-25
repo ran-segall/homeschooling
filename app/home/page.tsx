@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useKid } from '@/lib/context'
-import { supabase } from '@/lib/supabase'
-import type { KidProgress, Lesson, Subject } from '@/lib/database.types'
+import { useAppData } from '@/lib/app-data'
 
 const XP_PER_LEVEL = 100
 
@@ -14,55 +13,46 @@ const SUBJECT_ICONS: Record<string, string> = {
 }
 
 const WEEKLY_GOALS = [
-  { label: 'Complete 3 lessons', target: 3, done: 1 },
-  { label: 'Try a new subject', target: 1, done: 0 },
-  { label: '3-day streak', target: 3, done: 2 },
+  { label: 'Complete 3 lessons', target: 3 },
+  { label: 'Try a new subject', target: 1 },
+  { label: '3-day streak', target: 3 },
 ]
 
 export default function HomePage() {
   const { kid, logout } = useKid()
+  const { getProgress, getNextApprovedLesson, getCompletedSessions, subjects } = useAppData()
   const router = useRouter()
-  const [progress, setProgress] = useState<KidProgress | null>(null)
-  const [nextLesson, setNextLesson] = useState<(Lesson & { subject?: Subject }) | null>(null)
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!kid) { router.replace('/'); return }
-    loadData()
-  }, [kid])
+    if (!kid) router.replace('/')
+  }, [kid, router])
 
-  async function loadData() {
-    if (!kid) return
-    const [progressRes, lessonRes] = await Promise.all([
-      supabase.from('kid_progress').select('*').eq('kid_id', kid.id).single(),
-      supabase
-        .from('lessons')
-        .select('*, subject:subjects(*)')
-        .eq('assigned_to', kid.id)
-        .eq('status', 'approved')
-        .order('order_index')
-        .limit(1)
-        .single(),
-    ])
-    if (progressRes.data) setProgress(progressRes.data as KidProgress)
-    if (lessonRes.data) setNextLesson(lessonRes.data as Lesson & { subject?: Subject })
-    setLoading(false)
-  }
+  if (!kid) return null
 
-  if (!kid || loading) {
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--line)', borderTopColor: 'var(--ink)', animation: 'spin 0.8s linear infinite' }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    )
-  }
+  const progress = getProgress(kid.id)
+  const nextLesson = getNextApprovedLesson(kid.id)
+  const subject = nextLesson ? subjects.find(s => s.id === nextLesson.subject_id) : null
 
   const xp = progress?.xp ?? 0
   const level = progress?.level ?? 1
   const streak = progress?.streak_days ?? 0
   const xpIntoLevel = xp % XP_PER_LEVEL
   const xpPct = (xpIntoLevel / XP_PER_LEVEL) * 100
+
+  // Weekly goals — derive from completed sessions this week
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const recentSessions = getCompletedSessions(kid.id).filter(s => (s.completed_at ?? '') >= weekAgo)
+  const lessonsThisWeek = recentSessions.length
+  const subjectsThisWeek = new Set(recentSessions.map(s => {
+    // find subject_id via lesson lookup would need context — use count as proxy
+    return s.lesson_id
+  })).size
+
+  const weeklyGoalsDone = [
+    Math.min(lessonsThisWeek, 3),
+    Math.min(subjectsThisWeek >= 1 ? 1 : 0, 1),
+    Math.min(streak, 3),
+  ]
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -110,26 +100,20 @@ export default function HomePage() {
           <button
             onClick={() => router.push(`/lesson/${nextLesson.id}`)}
             style={{
-              width: '100%',
-              background: 'var(--ink)',
-              borderRadius: 20,
-              padding: '28px 28px',
-              border: 'none',
-              cursor: 'pointer',
-              textAlign: 'left',
-              marginBottom: 20,
-              display: 'block',
-              transition: 'transform 100ms ease, opacity 100ms ease',
+              width: '100%', background: 'var(--ink)', borderRadius: 20,
+              padding: '28px 28px', border: 'none', cursor: 'pointer',
+              textAlign: 'left', marginBottom: 20, display: 'block',
+              transition: 'opacity 100ms ease',
             }}
             onMouseEnter={e => (e.currentTarget.style.opacity = '0.92')}
             onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
               <span style={{ fontSize: 18 }}>
-                {nextLesson.subject ? SUBJECT_ICONS[nextLesson.subject.id] ?? '📚' : '📚'}
+                {subject ? SUBJECT_ICONS[subject.id] ?? '📚' : '📚'}
               </span>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                {nextLesson.subject?.label ?? 'Lesson'}
+                {subject?.label ?? 'Lesson'}
               </span>
             </div>
             <div style={{ fontFamily: 'var(--font-serif)', fontSize: 26, color: '#fff', lineHeight: 1.2, marginBottom: 16 }}>
@@ -137,14 +121,7 @@ export default function HomePage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>+{nextLesson.xp_reward} XP</span>
-              <div style={{
-                background: 'var(--lime)',
-                color: 'var(--lime-fg)',
-                fontWeight: 700,
-                fontSize: 13,
-                borderRadius: 100,
-                padding: '8px 20px',
-              }}>
+              <div style={{ background: 'var(--lime)', color: 'var(--lime-fg)', fontWeight: 700, fontSize: 13, borderRadius: 100, padding: '8px 20px' }}>
                 Start →
               </div>
             </div>
@@ -161,19 +138,20 @@ export default function HomePage() {
             This week
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {WEEKLY_GOALS.map((g) => {
-              const pct = Math.min((g.done / g.target) * 100, 100)
-              const done = g.done >= g.target
+            {WEEKLY_GOALS.map((g, i) => {
+              const done = weeklyGoalsDone[i]
+              const pct = Math.min((done / g.target) * 100, 100)
+              const complete = done >= g.target
               return (
                 <div key={g.label}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 14, color: done ? 'var(--ink2)' : 'var(--ink)', textDecoration: done ? 'line-through' : 'none' }}>
+                    <span style={{ fontSize: 14, color: complete ? 'var(--ink2)' : 'var(--ink)', textDecoration: complete ? 'line-through' : 'none' }}>
                       {g.label}
                     </span>
-                    <span style={{ fontSize: 13, color: 'var(--ink3)' }}>{g.done}/{g.target}</span>
+                    <span style={{ fontSize: 13, color: 'var(--ink3)' }}>{done}/{g.target}</span>
                   </div>
                   <div style={{ height: 5, background: 'var(--lime-bg)', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: done ? 'var(--lime)' : 'var(--lime)', borderRadius: 3 }} />
+                    <div style={{ height: '100%', width: `${pct}%`, background: 'var(--lime)', borderRadius: 3 }} />
                   </div>
                 </div>
               )

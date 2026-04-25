@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useAppData, SUBJECTS, type StoredLesson, type StoredSession } from '@/lib/app-data'
+import type { Profile } from '@/lib/database.types'
 
 // ─── Design tokens ────────────────────────────────────────────
 const C = {
@@ -13,10 +14,7 @@ const C = {
   rose: 'oklch(0.78 0.12 20)',
 }
 
-const KID_IDS = {
-  reef: '00000000-0000-0000-0000-000000000001',
-  tommy: '00000000-0000-0000-0000-000000000002',
-}
+const AVATAR_COLORS = ['#4F7942', '#3B5FA0', '#8B4513', '#6B3FA0', '#1A7A6E', '#A0522D']
 
 // ─── Primitives ───────────────────────────────────────────────
 
@@ -30,12 +28,10 @@ function Logo({ size = 22 }: { size?: number }) {
   )
 }
 
-function Avatar({ kid, size = 36 }: { kid: 'reef' | 'tommy'; size?: number }) {
-  const color = kid === 'reef' ? '#4F7942' : '#3B5FA0'
-  const letter = kid === 'reef' ? 'R' : 'T'
+function Avatar({ color, initial, size = 36 }: { color: string; initial: string; size?: number }) {
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.38, fontWeight: 700, color: '#fff', flexShrink: 0, fontFamily: 'var(--font-body)' }}>
-      {letter}
+      {initial}
     </div>
   )
 }
@@ -79,11 +75,10 @@ const SUBJECT_COLORS: Record<string, { bg: string; fg: string }> = {
   'Art':         { bg: 'oklch(0.94 0.04 350)', fg: 'oklch(0.42 0.12 350)' },
 }
 
-// ─── Lesson Preview Modal ─────────────────────────────────────
-
-type StepContent = Record<string, unknown>
-type PreviewStep = { type: string; step_order?: number; content: StepContent }
-type LessonRow = { id: string; title: string; subject_id?: string; subject?: { label: string }; description?: string; why_now?: string | null; xp_reward?: number; status: string; steps?: PreviewStep[] }
+const SUBJECT_ICONS: Record<string, string> = {
+  philosophy: '💭', geography: '🌍', writing: '✍️', money: '💰',
+  tech: '💻', history: '📜', science: '🔬', art: '🎨',
+}
 
 const STEP_BG: Record<string, { bg: string; fg: string }> = {
   'Read':           { bg: '#F0EDE4',                    fg: C.ink3 },
@@ -95,23 +90,92 @@ const STEP_BG: Record<string, { bg: string; fg: string }> = {
   'Socratic':       { bg: 'oklch(0.93 0.05 120)',       fg: 'oklch(0.32 0.10 125)' },
 }
 
-function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: LessonRow; onClose: () => void; onApprove: () => void; onReject: () => void }) {
-  const [steps, setSteps] = useState<PreviewStep[]>(lesson.steps ?? [])
-  const [loadingSteps, setLoadingSteps] = useState(!lesson.steps)
-  const isApproved = lesson.status === 'approved'
-  const subjectLabel = lesson.subject?.label ?? lesson.subject_id ?? ''
+// ─── Add Child Modal ──────────────────────────────────────────
 
-  useEffect(() => {
-    if (lesson.steps) return
-    supabase.from('lesson_steps').select('*').eq('lesson_id', lesson.id).order('step_order')
-      .then(({ data }) => { if (data) setSteps(data as PreviewStep[]); setLoadingSteps(false) })
-  }, [lesson.id, lesson.steps])
+function AddChildModal({ onClose }: { onClose: () => void }) {
+  const { addKid } = useAppData()
+  const [name, setName] = useState('')
+  const [age, setAge] = useState('')
+  const [colorIdx, setColorIdx] = useState(0)
+  const [saving, setSaving] = useState(false)
+
+  function handleSave() {
+    if (!name.trim() || !age) return
+    setSaving(true)
+    addKid(name.trim(), parseInt(age), AVATAR_COLORS[colorIdx])
+    onClose()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(22,20,15,.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: C.bg, borderRadius: 24, padding: 28, boxShadow: '0 32px 80px rgba(0,0,0,.28)' }}>
+        <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 26, fontWeight: 400, color: C.ink, margin: '0 0 20px' }}>Add a child</h2>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Name</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Reef"
+              style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: `1px solid ${C.line}`, background: C.card, fontSize: 15, color: C.ink, fontFamily: 'var(--font-body)', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Age</label>
+            <input
+              type="number"
+              value={age}
+              onChange={e => setAge(e.target.value)}
+              placeholder="e.g. 9"
+              min={4} max={18}
+              style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: `1px solid ${C.line}`, background: C.card, fontSize: 15, color: C.ink, fontFamily: 'var(--font-body)', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Colour</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {AVATAR_COLORS.map((col, i) => (
+                <button key={col} onClick={() => setColorIdx(i)} style={{ width: 36, height: 36, borderRadius: '50%', background: col, border: i === colorIdx ? `3px solid ${C.ink}` : '3px solid transparent', cursor: 'pointer', outline: 'none' }} />
+              ))}
+            </div>
+          </div>
+
+          {name && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: C.bg2, borderRadius: 12 }}>
+              <Avatar color={AVATAR_COLORS[colorIdx]} initial={name[0].toUpperCase()} size={44} />
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: C.ink }}>{name}</div>
+                {age && <div style={{ fontSize: 12, color: C.ink3 }}>age {age}</div>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+          <Btn tone="ink" onClick={handleSave} disabled={!name.trim() || !age || saving} style={{ flex: 1, justifyContent: 'center' }}>
+            {saving ? 'Adding…' : 'Add child'}
+          </Btn>
+          <Btn tone="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Lesson Preview Modal ─────────────────────────────────────
+
+function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: StoredLesson; onClose: () => void; onApprove: () => void; onReject: () => void }) {
+  const isApproved = lesson.status === 'approved'
+  const subjectLabel = SUBJECTS.find(s => s.id === lesson.subject_id)?.label ?? lesson.subject_id
+  const steps = lesson.steps ?? []
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(22,20,15,.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 660, maxHeight: '88vh', background: C.bg, borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,.28)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Header */}
         <div style={{ padding: '22px 24px', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'flex-start', gap: 14 }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -124,12 +188,9 @@ function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: 
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 99, background: C.bg2, border: 0, cursor: 'pointer', fontSize: 16, color: C.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
         </div>
 
-        {/* Steps */}
         <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-          {loadingSteps ? (
-            <div style={{ textAlign: 'center', color: C.ink3, fontSize: 13, padding: '32px 0' }}>Loading lesson…</div>
-          ) : steps.length === 0 ? (
-            <div style={{ textAlign: 'center', color: C.ink3, fontSize: 13, padding: '32px 0' }}>Preview not available for this lesson yet.</div>
+          {steps.length === 0 ? (
+            <div style={{ textAlign: 'center', color: C.ink3, fontSize: 13, padding: '32px 0' }}>No steps yet.</div>
           ) : (
             <>
               <div style={{ fontSize: 10.5, color: C.ink4, letterSpacing: '.18em', textTransform: 'uppercase', marginBottom: 14, fontFamily: 'var(--font-body)' }}>{steps.length} steps · lesson content</div>
@@ -138,7 +199,7 @@ function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: 
                   const tone = STEP_BG[step.type] ?? STEP_BG['Read']
                   const c = step.content
                   return (
-                    <div key={i} style={{ background: '#FFF', borderRadius: 16, border: `1px solid ${C.line}`, overflow: 'hidden' }}>
+                    <div key={step.id} style={{ background: '#FFF', borderRadius: 16, border: `1px solid ${C.line}`, overflow: 'hidden' }}>
                       <div style={{ padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.line}`, background: '#FFFDF8' }}>
                         <div style={{ width: 22, height: 22, borderRadius: 99, background: C.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, color: C.bg, fontWeight: 600 }}>{i + 1}</div>
                         <span style={{ fontSize: 12, fontWeight: 500, color: C.ink2 }}>{step.type}</span>
@@ -190,7 +251,6 @@ function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: 
           )}
         </div>
 
-        {/* Footer */}
         <div style={{ padding: '16px 24px', borderTop: `1px solid ${C.line}`, background: '#FFFDF8', display: 'flex', gap: 10, alignItems: 'center' }}>
           {!isApproved ? (
             <>
@@ -215,18 +275,17 @@ function LessonPreviewModal({ lesson, onClose, onApprove, onReject }: { lesson: 
 
 // ─── Lesson Card ──────────────────────────────────────────────
 
-function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: LessonRow; onApprove: () => void; onReject: () => void; onPreview: () => void }) {
+function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: StoredLesson; onApprove: () => void; onReject: () => void; onPreview: () => void }) {
   const [open, setOpen] = useState(false)
   const isApproved = lesson.status === 'approved'
-  const subjectLabel = lesson.subject?.label ?? lesson.subject_id ?? ''
+  const subjectLabel = SUBJECTS.find(s => s.id === lesson.subject_id)?.label ?? lesson.subject_id
   const subColors = SUBJECT_COLORS[subjectLabel] ?? { bg: C.bg2, fg: C.ink3 }
 
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${isApproved ? 'oklch(0.82 0.12 140)' : C.line}`, background: isApproved ? 'oklch(0.97 0.02 140)' : C.card, overflow: 'hidden' }}>
-      {/* Header */}
       <div onClick={() => setOpen(o => !o)} style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
         <div style={{ width: 36, height: 36, borderRadius: 10, background: subColors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>
-          {subjectLabel === 'Philosophy' ? '💭' : subjectLabel === 'Geography' ? '🌍' : subjectLabel === 'Writing' ? '✍️' : subjectLabel === 'Money' ? '💰' : subjectLabel === 'Tech' ? '💻' : subjectLabel === 'History' ? '📜' : subjectLabel === 'Science' ? '🔬' : '🎨'}
+          {SUBJECT_ICONS[lesson.subject_id] ?? '📚'}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, letterSpacing: '-.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.ink }}>{lesson.title}</div>
@@ -238,7 +297,6 @@ function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: Lesson
         </div>
       </div>
 
-      {/* Expanded */}
       {open && (
         <div style={{ borderTop: `1px solid ${C.line}`, padding: '14px 16px', background: '#FFFDF8' }}>
           {lesson.description && <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.55, marginBottom: 10 }}>{lesson.description}</div>}
@@ -269,11 +327,12 @@ function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: Lesson
   )
 }
 
-// ─── Generated lesson card ────────────────────────────────────
+// ─── Generate Card ────────────────────────────────────────────
 
-type GeneratedLesson = { id: string; subject: string; title: string; description: string; why_now: string; xp_reward: number; steps: PreviewStep[]; status: string; assigned_to: string }
+type GeneratedLesson = { id: string; subject: string; title: string; description: string; why_now: string; xp_reward: number; steps: StoredLesson['steps']; status: string; assigned_to: string }
 
-function GenerateCard({ kidId, kidName, onAdded }: { kidId: string; kidName: string; onAdded: () => void }) {
+function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
+  const { getCompletedSessions, getLessons, addLesson } = useAppData()
   const [loading, setLoading] = useState(false)
   const [generated, setGenerated] = useState<GeneratedLesson | null>(null)
   const [saving, setSaving] = useState(false)
@@ -282,20 +341,44 @@ function GenerateCard({ kidId, kidName, onAdded }: { kidId: string; kidName: str
   async function generate() {
     setLoading(true)
     setGenerated(null)
-    const res = await fetch('/api/lessons/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kidId, kidName, kidAge: kidName === 'Reef' ? 9 : 11 }) })
+
+    const rawSessions = getCompletedSessions(kid.id).slice(0, 6)
+    const queued = getLessons(kid.id, ['pending', 'approved']).map(l => l.subject_id)
+
+    const recentSessions = rawSessions.map(s => ({
+      lesson_id: s.lesson_id,
+      subject_id: SUBJECTS.find(() => true)?.id ?? '',
+      fun_rating: s.feedback?.fun_rating ?? null,
+      difficulty: s.feedback?.difficulty ?? null,
+      score_pct: s.responses?.length
+        ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100)
+        : null,
+    }))
+
+    const res = await fetch('/api/lessons/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued }),
+    })
     const data = await res.json()
     if (data.lesson) setGenerated(data.lesson)
     setLoading(false)
   }
 
-  async function addToQueue() {
+  function addToQueue() {
     if (!generated) return
     setSaving(true)
-    const lessonId = `gen-${Date.now()}`
-    await supabase.from('lessons').insert({ id: lessonId, title: generated.title, subject_id: generated.subject.toLowerCase(), assigned_to: kidId, status: 'pending', why_now: generated.why_now, xp_reward: generated.xp_reward, order_index: 99 })
-    if (generated.steps?.length) {
-      await supabase.from('lesson_steps').insert(generated.steps.map((s, i) => ({ lesson_id: lessonId, step_order: i + 1, type: s.type, content: s.content })))
-    }
+    addLesson({
+      title: generated.title,
+      subject_id: generated.subject.toLowerCase(),
+      assigned_to: kid.id,
+      status: 'pending',
+      why_now: generated.why_now,
+      xp_reward: generated.xp_reward,
+      order_index: 99,
+      description: generated.description,
+      steps: (generated.steps ?? []).map(s => ({ type: s.type, content: s.content })),
+    })
     setGenerated(null)
     setSaving(false)
     onAdded()
@@ -311,24 +394,24 @@ function GenerateCard({ kidId, kidName, onAdded }: { kidId: string; kidName: str
             <div style={{ width: 28, height: 28, borderRadius: 8, background: C.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>✦</div>
             <div>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>Generate next lesson</div>
-              <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1 }}>Based on {kidName}&apos;s recent performance</div>
+              <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1 }}>Based on {kid.name}&apos;s recent performance</div>
             </div>
           </div>
-          <Btn tone="ink" onClick={generate} style={{ width: '100%', justifyContent: 'center' }}>Generate for {kidName} →</Btn>
+          <Btn tone="ink" onClick={generate} style={{ width: '100%', justifyContent: 'center' }}>Generate for {kid.name} →</Btn>
         </>
       )}
 
       {loading && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
           <div style={{ width: 36, height: 36, borderRadius: 99, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✦</div>
-          <div style={{ fontSize: 13, color: C.ink, textAlign: 'center' }}>Analysing {kidName}&apos;s performance…</div>
+          <div style={{ fontSize: 13, color: C.ink, textAlign: 'center' }}>Analysing {kid.name}&apos;s performance…</div>
           <div style={{ fontSize: 10.5, color: C.ink3, letterSpacing: '.12em' }}>building personalised lesson</div>
         </div>
       )}
 
       {generated && !loading && (
         <>
-          <div style={{ fontSize: 10, color: C.lime, letterSpacing: '.2em', textTransform: 'uppercase', marginBottom: 10, fontFamily: 'var(--font-body)' }}>Generated for {kidName}</div>
+          <div style={{ fontSize: 10, color: C.lime, letterSpacing: '.2em', textTransform: 'uppercase', marginBottom: 10, fontFamily: 'var(--font-body)' }}>Generated for {kid.name}</div>
           <Chip tone="lime" style={{ marginBottom: 10 }}>{generated.subject}</Chip>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, letterSpacing: '-.02em', lineHeight: 1.15, color: '#F6F3EC', marginTop: 8 }}>{generated.title}</div>
           <div style={{ fontSize: 13, color: '#BEB9AA', marginTop: 8, lineHeight: 1.5 }}>{generated.description}</div>
@@ -343,9 +426,9 @@ function GenerateCard({ kidId, kidName, onAdded }: { kidId: string; kidName: str
             </Btn>
             <Btn tone="ghost" onClick={() => setGenerated(null)} style={{ border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA' }}>Discard</Btn>
           </div>
-          {previewOpen && (
+          {previewOpen && generated && (
             <LessonPreviewModal
-              lesson={{ ...generated, subject: { label: generated.subject } } as unknown as LessonRow}
+              lesson={{ id: 'preview', title: generated.title, subject_id: generated.subject.toLowerCase(), description: generated.description, why_now: generated.why_now, xp_reward: generated.xp_reward, status: generated.status, assigned_to: kid.id, steps: generated.steps ?? [], order_index: 99 }}
               onClose={() => setPreviewOpen(false)}
               onApprove={() => { addToQueue(); setPreviewOpen(false) }}
               onReject={() => { setGenerated(null); setPreviewOpen(false) }}
@@ -357,31 +440,26 @@ function GenerateCard({ kidId, kidName, onAdded }: { kidId: string; kidName: str
   )
 }
 
-// ─── Kid column ───────────────────────────────────────────────
+// ─── Kid Column ───────────────────────────────────────────────
 
-function KidColumn({ kid, progress, lessons, onApprove, onReject, onRefresh }: {
-  kid: 'reef' | 'tommy'
-  progress: { xp: number; level: number; streak_days: number } | null
-  lessons: LessonRow[]
-  onApprove: (id: string) => void
-  onReject: (id: string) => void
-  onRefresh: () => void
-}) {
-  const [preview, setPreview] = useState<LessonRow | null>(null)
-  const name = kid === 'reef' ? 'Reef' : 'Tommy'
-  const age = kid === 'reef' ? 9 : 11
+function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) {
+  const { getLessons, getProgress, approveLesson, deleteLesson } = useAppData()
+  const [preview, setPreview] = useState<StoredLesson | null>(null)
+
+  const progress = getProgress(kid.id)
+  const lessons = getLessons(kid.id, ['pending', 'approved'])
   const pending = lessons.filter(l => l.status === 'pending').length
   const approved = lessons.filter(l => l.status === 'approved').length
+  const lowQueue = approved <= 1
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Kid header */}
       <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Avatar kid={kid} size={48} />
+        <Avatar color={kid.avatar_color} initial={kid.name[0]?.toUpperCase() ?? '?'} size={48} />
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', color: C.ink }}>{name}</div>
-            <div style={{ fontSize: 12, color: C.ink3 }}>age {age} · Level {progress?.level ?? 1}</div>
+            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', color: C.ink }}>{kid.name}</div>
+            <div style={{ fontSize: 12, color: C.ink3 }}>age {kid.age} · Level {progress?.level ?? 1}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             {(progress?.streak_days ?? 0) > 0 && <Chip tone="amber">🔥 {progress?.streak_days}-day streak</Chip>}
@@ -391,7 +469,15 @@ function KidColumn({ kid, progress, lessons, onApprove, onReject, onRefresh }: {
         </div>
       </div>
 
-      {/* Lesson queue */}
+      {lowQueue && (
+        <div style={{ padding: '12px 16px', borderRadius: 12, background: 'oklch(0.96 0.04 80)', border: '1px solid oklch(0.88 0.08 65)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span style={{ fontSize: 13, color: 'oklch(0.38 0.12 65)' }}>
+            {approved === 0 ? `${kid.name} has no approved lessons — generate and approve one below.` : `Only 1 lesson left for ${kid.name} — generate more soon.`}
+          </span>
+        </div>
+      )}
+
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 2px' }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>Lesson queue</div>
@@ -402,8 +488,8 @@ function KidColumn({ kid, progress, lessons, onApprove, onReject, onRefresh }: {
             <LessonCard
               key={lesson.id}
               lesson={lesson}
-              onApprove={() => onApprove(lesson.id)}
-              onReject={() => onReject(lesson.id)}
+              onApprove={() => { approveLesson(lesson.id); onRefresh() }}
+              onReject={() => { deleteLesson(lesson.id); onRefresh() }}
               onPreview={() => setPreview(lesson)}
             />
           ))}
@@ -415,15 +501,14 @@ function KidColumn({ kid, progress, lessons, onApprove, onReject, onRefresh }: {
         </div>
       </div>
 
-      {/* Generate */}
-      <GenerateCard kidId={KID_IDS[kid]} kidName={name} onAdded={onRefresh} />
+      <GenerateCard kid={kid} onAdded={onRefresh} />
 
       {preview && (
         <LessonPreviewModal
           lesson={preview}
           onClose={() => setPreview(null)}
-          onApprove={() => { onApprove(preview.id); setPreview(null) }}
-          onReject={() => { onReject(preview.id); setPreview(null) }}
+          onApprove={() => { approveLesson(preview.id); setPreview(null); onRefresh() }}
+          onReject={() => { deleteLesson(preview.id); setPreview(null); onRefresh() }}
         />
       )}
     </div>
@@ -432,24 +517,19 @@ function KidColumn({ kid, progress, lessons, onApprove, onReject, onRefresh }: {
 
 // ─── Completed Lessons ────────────────────────────────────────
 
-type SessionRow = {
-  id: string; lesson_id: string; kid_id: string; completed_at: string; time_spent_seconds: number | null
-  lesson?: { id: string; title: string; subject_id?: string; subject?: { label: string } } | null
-  feedback?: { fun_rating?: number; learned_something?: string; difficulty?: string }[]
-  responses?: { is_correct: boolean | null }[]
-}
+const FUN_EMOJI: Record<number, string> = { 1: '😐', 2: '🙂', 3: '😄', 4: '🤩' }
+const DIFFICULTY_LABEL: Record<string, string> = { too_easy: 'Too easy', just_right: 'Just right', too_hard: 'Hard' }
+const LEARNED_LABEL: Record<string, string> = { yes_lots: 'Learnt loads!', a_bit: 'A little', already_knew: 'Already knew it' }
 
-function CompletedLessons({ sessions }: { sessions: SessionRow[] }) {
+function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids: Profile[] }) {
+  const { getLessonById } = useAppData()
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | 'reef' | 'tommy'>('all')
+  const [filterKid, setFilterKid] = useState<string>('all')
 
-  const filtered = filter === 'all' ? sessions : sessions.filter(s => s.kid_id === KID_IDS[filter])
+  const filtered = filterKid === 'all' ? sessions : sessions.filter(s => s.kid_id === filterKid)
 
-  const FUN_EMOJI: Record<number, string> = { 1: '😐', 2: '🙂', 3: '😄', 4: '🤩' }
-  const DIFFICULTY_LABEL: Record<string, string> = { too_easy: 'Too easy', just_right: 'Just right', too_hard: 'Hard' }
-  const LEARNED_LABEL: Record<string, string> = { yes_lots: 'Learnt loads!', a_bit: 'A little', already_knew: 'Already knew it' }
-  const RESULT_COLORS = { correct: 'oklch(0.93 0.06 140)', wrong: 'oklch(0.95 0.04 20)', partial: 'oklch(0.95 0.04 60)', strong: 'oklch(0.93 0.05 295)' }
-  const RESULT_FG = { correct: 'oklch(0.35 0.12 140)', wrong: 'oklch(0.45 0.12 20)', partial: 'oklch(0.42 0.12 60)', strong: 'oklch(0.42 0.14 295)' }
+  const RESULT_COLORS = { correct: 'oklch(0.93 0.06 140)', wrong: 'oklch(0.95 0.04 20)', partial: 'oklch(0.95 0.04 60)' }
+  const RESULT_FG = { correct: 'oklch(0.35 0.12 140)', wrong: 'oklch(0.45 0.12 20)', partial: 'oklch(0.42 0.12 60)' }
 
   return (
     <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, overflow: 'hidden' }}>
@@ -459,9 +539,12 @@ function CompletedLessons({ sessions }: { sessions: SessionRow[] }) {
           <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{sessions.length} lessons · notes, scores & feedback</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {(['all', 'reef', 'tommy'] as const).map(k => (
-            <button key={k} onClick={() => setFilter(k)} style={{ padding: '6px 13px', borderRadius: 99, fontSize: 12.5, fontWeight: 500, background: filter === k ? C.ink : 'transparent', color: filter === k ? '#F6F3EC' : C.ink2, border: `1px solid ${filter === k ? C.ink : C.line}`, cursor: 'pointer', textTransform: 'capitalize', fontFamily: 'var(--font-body)' }}>
-              {k === 'all' ? 'Both' : k === 'reef' ? 'Reef' : 'Tommy'}
+          <button onClick={() => setFilterKid('all')} style={{ padding: '6px 13px', borderRadius: 99, fontSize: 12.5, fontWeight: 500, background: filterKid === 'all' ? C.ink : 'transparent', color: filterKid === 'all' ? '#F6F3EC' : C.ink2, border: `1px solid ${filterKid === 'all' ? C.ink : C.line}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+            Both
+          </button>
+          {kids.map(k => (
+            <button key={k.id} onClick={() => setFilterKid(k.id)} style={{ padding: '6px 13px', borderRadius: 99, fontSize: 12.5, fontWeight: 500, background: filterKid === k.id ? C.ink : 'transparent', color: filterKid === k.id ? '#F6F3EC' : C.ink2, border: `1px solid ${filterKid === k.id ? C.ink : C.line}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+              {k.name}
             </button>
           ))}
         </div>
@@ -472,32 +555,37 @@ function CompletedLessons({ sessions }: { sessions: SessionRow[] }) {
       ) : (
         filtered.map((s, i) => {
           const isOpen = expanded === s.id
+          const lesson = getLessonById(s.lesson_id)
+          const subjectLabel = lesson ? (SUBJECTS.find(sub => sub.id === lesson.subject_id)?.label ?? lesson.subject_id) : '—'
           const correct = s.responses?.filter(r => r.is_correct).length ?? 0
           const total = s.responses?.length ?? 0
           const pct = total > 0 ? Math.round(correct / total * 100) : 0
           const scoreColor = pct >= 80 ? 'oklch(0.65 0.14 140)' : pct >= 60 ? 'oklch(0.65 0.14 60)' : C.rose
-          const fb = s.feedback?.[0]
-          const kidKey = s.kid_id === KID_IDS.reef ? 'reef' : 'tommy'
+          const fb = s.feedback ?? null
+          const kidProfile = kids.find(k => k.id === s.kid_id)
           const mins = s.time_spent_seconds ? Math.ceil(s.time_spent_seconds / 60) : '?'
-          const date = new Date(s.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          const date = s.completed_at ? new Date(s.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
 
           return (
             <div key={s.id} style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
               <div onClick={() => setExpanded(isOpen ? null : s.id)} style={{ padding: '16px 22px', display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', alignItems: 'center', gap: 16, cursor: 'pointer', background: isOpen ? '#FFFDF8' : 'transparent' }}>
-                <Avatar kid={kidKey} size={34} />
+                {kidProfile
+                  ? <Avatar color={kidProfile.avatar_color} initial={kidProfile.name[0]?.toUpperCase() ?? '?'} size={34} />
+                  : <div style={{ width: 34, height: 34, borderRadius: '50%', background: C.bg2 }} />
+                }
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{s.lesson?.title ?? 'Unknown lesson'}</span>
-                    {s.lesson?.subject && <Chip>{s.lesson.subject.label}</Chip>}
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{lesson?.title ?? 'Unknown lesson'}</span>
+                    {subjectLabel && <Chip>{subjectLabel}</Chip>}
                   </div>
-                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 3 }}>{kidKey === 'reef' ? 'Reef' : 'Tommy'} · {date} · {mins} min</div>
+                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 3 }}>{kidProfile?.name ?? '—'} · {date} · {mins} min</div>
                 </div>
                 <div style={{ textAlign: 'center', minWidth: 56 }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: scoreColor, fontFamily: 'var(--font-serif)' }}>{pct}%</div>
                   <div style={{ fontSize: 9.5, color: C.ink4, letterSpacing: '.1em' }}>{correct}/{total}</div>
                 </div>
                 <div style={{ textAlign: 'center', minWidth: 56 }}>
-                  <div style={{ fontSize: 20 }}>{FUN_EMOJI[fb?.fun_rating ?? 0] ?? '—'}</div>
+                  <div style={{ fontSize: 20 }}>{fb?.fun_rating ? FUN_EMOJI[fb.fun_rating] : '—'}</div>
                   <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 2 }}>{DIFFICULTY_LABEL[fb?.difficulty ?? ''] ?? '—'}</div>
                 </div>
                 <span style={{ color: C.ink3, fontSize: 12, transform: isOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform .2s', display: 'inline-block' }}>▾</span>
@@ -547,6 +635,54 @@ function CompletedLessons({ sessions }: { sessions: SessionRow[] }) {
   )
 }
 
+// ─── Struggle Panel ───────────────────────────────────────────
+
+function StrugglePanel({ sessions, kids }: { sessions: StoredSession[]; kids: Profile[] }) {
+  const { getLessonById } = useAppData()
+
+  const struggles = sessions
+    .filter(s => {
+      const correct = s.responses?.filter(r => r.is_correct).length ?? 0
+      const total = s.responses?.length ?? 1
+      return total > 0 && correct / total < 0.7
+    })
+    .slice(0, 4)
+    .map(s => {
+      const lesson = getLessonById(s.lesson_id)
+      const kid = kids.find(k => k.id === s.kid_id)
+      const subjectLabel = lesson ? (SUBJECTS.find(sub => sub.id === lesson.subject_id)?.label ?? lesson.subject_id) : '—'
+      return {
+        kid,
+        subject: subjectLabel,
+        title: lesson?.title ?? 'Unknown',
+        score: s.responses?.length ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100) : 0,
+      }
+    })
+
+  return (
+    <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, padding: 20 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Where they struggled</div>
+      <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Lessons above are adjusted for these.</div>
+      {struggles.length === 0 ? (
+        <div style={{ padding: '24px 0', textAlign: 'center', color: C.ink3, fontSize: 13 }}>No struggles yet — keep learning!</div>
+      ) : (
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {struggles.map((it, i) => (
+            <div key={i} style={{ padding: 12, borderRadius: 14, background: '#FFFDF8', border: `1px solid ${C.line}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {it.kid && <Avatar color={it.kid.avatar_color} initial={it.kid.name[0]?.toUpperCase() ?? '?'} size={24} />}
+                <Chip>{it.subject}</Chip>
+                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: C.rose }}>{it.score}%</span>
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 500, marginTop: 8, color: C.ink }}>{it.title}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Dinner prompts ───────────────────────────────────────────
 
 const DINNER_PROMPTS = [
@@ -581,105 +717,18 @@ function ConversationPanel() {
   )
 }
 
-// ─── Struggle panel ───────────────────────────────────────────
-
-function StrugglePanel({ sessions }: { sessions: SessionRow[] }) {
-  const struggles = sessions
-    .filter(s => {
-      const correct = s.responses?.filter(r => r.is_correct).length ?? 0
-      const total = s.responses?.length ?? 1
-      return correct / total < 0.7
-    })
-    .slice(0, 4)
-    .map(s => ({
-      kid: s.kid_id === KID_IDS.reef ? 'reef' : 'tommy' as 'reef' | 'tommy',
-      subject: s.lesson?.subject?.label ?? 'Unknown',
-      title: s.lesson?.title ?? 'Unknown',
-      score: s.responses?.length ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100) : 0,
-    }))
-
-  return (
-    <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, padding: 20 }}>
-      <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Where they struggled</div>
-      <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Lessons above are adjusted for these.</div>
-      {struggles.length === 0 ? (
-        <div style={{ padding: '24px 0', textAlign: 'center', color: C.ink3, fontSize: 13 }}>No struggles yet — keep learning!</div>
-      ) : (
-        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {struggles.map((it, i) => (
-            <div key={i} style={{ padding: 12, borderRadius: 14, background: '#FFFDF8', border: `1px solid ${C.line}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar kid={it.kid} size={24} />
-                <Chip>{it.subject}</Chip>
-                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: C.rose }}>{it.score}%</span>
-              </div>
-              <div style={{ fontSize: 13.5, fontWeight: 500, marginTop: 8, color: C.ink }}>{it.title}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main Parent Page ─────────────────────────────────────────
 
 export default function ParentPage() {
   const router = useRouter()
-  const [reefLessons, setReefLessons] = useState<LessonRow[]>([])
-  const [tommyLessons, setTommyLessons] = useState<LessonRow[]>([])
-  const [reefProgress, setReefProgress] = useState<{ xp: number; level: number; streak_days: number } | null>(null)
-  const [tommyProgress, setTommyProgress] = useState<{ xp: number; level: number; streak_days: number } | null>(null)
-  const [completedSessions, setCompletedSessions] = useState<SessionRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const { kids, getCompletedSessions, ready } = useAppData()
+  const [showAddChild, setShowAddChild] = useState(false)
+  const [, forceRender] = useState(0)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 
-  const load = useCallback(async () => {
-    try {
-      // Simple, flat queries first — avoids nested join failures
-      const [reefRes, tommyRes, reefProg, tommyProg] = await Promise.all([
-        supabase.from('lessons').select('*, subject:subjects(*)').eq('assigned_to', KID_IDS.reef).in('status', ['pending', 'approved']).order('order_index'),
-        supabase.from('lessons').select('*, subject:subjects(*)').eq('assigned_to', KID_IDS.tommy).in('status', ['pending', 'approved']).order('order_index'),
-        supabase.from('kid_progress').select('*').eq('kid_id', KID_IDS.reef).single(),
-        supabase.from('kid_progress').select('*').eq('kid_id', KID_IDS.tommy).single(),
-      ])
+  const completedSessions = getCompletedSessions()
 
-      if (reefRes.data) setReefLessons(reefRes.data as LessonRow[])
-      if (tommyRes.data) setTommyLessons(tommyRes.data as LessonRow[])
-      if (reefProg.data) setReefProgress(reefProg.data as { xp: number; level: number; streak_days: number })
-      if (tommyProg.data) setTommyProgress(tommyProg.data as { xp: number; level: number; streak_days: number })
-
-      // Fetch completed sessions separately (shallow — no nested step responses)
-      const { data: sessions } = await supabase
-        .from('lesson_sessions')
-        .select('*, lesson:lessons(id, title, subject_id, subject:subjects(label)), feedback:lesson_feedback(*), responses:step_responses(is_correct)')
-        .not('completed_at', 'is', null)
-        .order('completed_at', { ascending: false })
-        .limit(20)
-
-      if (sessions) setCompletedSessions(sessions as SessionRow[])
-    } catch (err) {
-      console.error('Parent dashboard load error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  async function approve(lessonId: string) {
-    await supabase.from('lessons').update({ status: 'approved' }).eq('id', lessonId)
-    load()
-  }
-
-  async function reject(lessonId: string) {
-    await supabase.from('lessons').delete().eq('id', lessonId)
-    load()
-  }
-
-  const totalPending = reefLessons.filter(l => l.status === 'pending').length + tommyLessons.filter(l => l.status === 'pending').length
-
-  if (loading) {
+  if (!ready) {
     return (
       <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid #E2DDCF', borderTopColor: C.ink, animation: 'spin 0.8s linear infinite' }} />
@@ -691,7 +740,6 @@ export default function ParentPage() {
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.ink }}>
 
-      {/* Top bar */}
       <div style={{ borderBottom: `1px solid ${C.line}`, padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FFFDF8', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Logo size={22} />
@@ -699,28 +747,39 @@ export default function ParentPage() {
           <span style={{ fontSize: 10.5, color: C.ink4, letterSpacing: '.15em', textTransform: 'uppercase', marginLeft: 10 }}>{today}</span>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          {totalPending > 0 && (
-            <span style={{ fontSize: 10.5, color: C.ink4, letterSpacing: '.1em' }}>{totalPending} lesson{totalPending !== 1 ? 's' : ''} awaiting review</span>
-          )}
+          <Btn tone="ghost" size="sm" onClick={() => setShowAddChild(true)}>+ Add child</Btn>
           <button onClick={() => router.push('/')} style={{ background: 'transparent', border: `1px solid ${C.line}`, fontSize: 12, color: C.ink3, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>← Kids view</button>
         </div>
       </div>
 
-      {/* Main grid */}
-      <div style={{ padding: '32px 28px 56px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, maxWidth: 1280, margin: '0 auto' }}>
-
-        <KidColumn kid="reef" progress={reefProgress} lessons={reefLessons} onApprove={approve} onReject={reject} onRefresh={load} />
-        <KidColumn kid="tommy" progress={tommyProgress} lessons={tommyLessons} onApprove={approve} onReject={reject} onRefresh={load} />
-
-        <div style={{ gridColumn: '1 / -1' }}>
-          <CompletedLessons sessions={completedSessions} />
+      {kids.length === 0 ? (
+        <div style={{ maxWidth: 480, margin: '80px auto', padding: '0 28px', textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>👋</div>
+          <div style={{ fontFamily: 'var(--font-serif)', fontSize: 28, color: C.ink, marginBottom: 10 }}>Welcome to Curio</div>
+          <div style={{ fontSize: 15, color: C.ink3, lineHeight: 1.6, marginBottom: 28 }}>Add your first child to get started. You&apos;ll be able to generate and approve lessons for them right here.</div>
+          <Btn tone="ink" onClick={() => setShowAddChild(true)} style={{ fontSize: 15, padding: '12px 28px' }}>Add your first child →</Btn>
         </div>
+      ) : (
+        <div style={{ padding: '32px 28px 56px', display: 'grid', gridTemplateColumns: kids.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: 20, maxWidth: 1280, margin: '0 auto' }}>
 
-        <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
-          <ConversationPanel />
-          <StrugglePanel sessions={completedSessions} />
+          {kids.map(kid => (
+            <KidColumn key={kid.id} kid={kid} onRefresh={() => forceRender(n => n + 1)} />
+          ))}
+
+          {completedSessions.length > 0 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <CompletedLessons sessions={completedSessions} kids={kids} />
+            </div>
+          )}
+
+          <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
+            <ConversationPanel />
+            <StrugglePanel sessions={completedSessions} kids={kids} />
+          </div>
         </div>
-      </div>
+      )}
+
+      {showAddChild && <AddChildModal onClose={() => setShowAddChild(false)} />}
     </div>
   )
 }
