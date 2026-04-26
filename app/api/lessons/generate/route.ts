@@ -12,12 +12,14 @@ type RecentSession = {
 }
 
 export async function POST(req: NextRequest) {
-  const { kidId, kidName, kidAge, recentSessions, queuedSubjects } = await req.json() as {
+  const { kidId, kidName, kidAge, recentSessions, queuedSubjects, feedback, existingLesson } = await req.json() as {
     kidId: string
     kidName: string
     kidAge: number
     recentSessions?: RecentSession[]
     queuedSubjects?: string[]
+    feedback?: string
+    existingLesson?: Record<string, unknown>
   }
 
   const sessions = recentSessions ?? []
@@ -34,7 +36,31 @@ export async function POST(req: NextRequest) {
     `- subject: ${s.subject_id ?? 'unknown'}, score: ${s.score_pct ?? '?'}%, fun: ${s.fun_rating ?? '?'}/4, difficulty: ${s.difficulty ?? 'unknown'}`
   )
 
-  const prompt = `You are a curriculum designer for Curio, a homeschool educational app.
+  const prompt = feedback && existingLesson ? `You are a curriculum designer for Curio, a homeschool educational app.
+
+Kid: ${kidName}, age ${kidAge}
+
+You previously generated this lesson:
+${JSON.stringify(existingLesson, null, 2)}
+
+The parent has reviewed it and given this feedback:
+"${feedback}"
+
+Revise the lesson to address the feedback. Keep what works, fix what was flagged. Return the full revised lesson as valid JSON (no markdown fences):
+{
+  "subject": "one subject id from the list",
+  "title": "compelling title under 6 words",
+  "description": "one sentence what this lesson teaches",
+  "why_now": "one sentence why this lesson is right for ${kidName} right now",
+  "xp_reward": 50,
+  "steps": [
+    {"type": "Read", "content": {"text": "2-3 engaging sentences introducing the topic, written for age ${kidAge}"}},
+    {"type": "Multiple choice", "content": {"question": "question text", "options": ["A","B","C","D"], "correct": 1}},
+    {"type": "Drag to order", "content": {"question": "order these...", "items": ["item1","item2","item3","item4"]}},
+    {"type": "Written answer", "content": {"question": "open-ended reflective question", "note": "No right answer. Assessed for reasoning."}},
+    {"type": "Socratic", "content": {"question": "a deep follow-up question with no single correct answer"}}
+  ]
+}` : `You are a curriculum designer for Curio, a homeschool educational app.
 
 Kid: ${kidName}, age ${kidAge}
 ${recentLines.length > 0

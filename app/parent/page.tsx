@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAppData, SUBJECTS, type StoredLesson, type StoredSession } from '@/lib/app-data'
 import type { Profile } from '@/lib/database.types'
@@ -331,20 +331,47 @@ function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: Stored
 
 type GeneratedLesson = { id: string; subject: string; title: string; description: string; why_now: string; xp_reward: number; steps: StoredLesson['steps']; status: string; assigned_to: string }
 
+const LOADING_PHASES = [
+  { label: 'Reviewing recent lessons', sub: 'analysing scores & feedback patterns' },
+  { label: 'Choosing subject & topic', sub: 'finding the right angle for right now' },
+  { label: 'Writing lesson content', sub: 'crafting the reading and questions' },
+  { label: 'Building interactive steps', sub: 'drag, match & socratic activities' },
+  { label: 'Finalising lesson', sub: 'polishing and wrapping up' },
+]
+
 function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
   const { getCompletedSessions, getLessons, addLesson } = useAppData()
   const [loading, setLoading] = useState(false)
+  const [phase, setPhase] = useState(0)
   const [generated, setGenerated] = useState<GeneratedLesson | null>(null)
   const [saving, setSaving] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [applyingFeedback, setApplyingFeedback] = useState(false)
+  const phaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  async function generate() {
-    setLoading(true)
-    setGenerated(null)
+  function startPhaseTimer() {
+    setPhase(0)
+    const delays = [1400, 2400, 3000, 2400]
+    function advance(i: number) {
+      if (i >= LOADING_PHASES.length - 1) return
+      phaseTimerRef.current = setTimeout(() => {
+        setPhase(i + 1)
+        advance(i + 1)
+      }, delays[i] ?? 2000)
+    }
+    advance(0)
+  }
 
+  function stopPhaseTimer() {
+    if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current)
+    setPhase(LOADING_PHASES.length - 1)
+  }
+
+  function buildPayload() {
     const rawSessions = getCompletedSessions(kid.id).slice(0, 6)
     const queued = getLessons(kid.id, ['pending', 'approved']).map(l => l.subject_id)
-
     const recentSessions = rawSessions.map(s => ({
       lesson_id: s.lesson_id,
       subject_id: SUBJECTS.find(() => true)?.id ?? '',
@@ -354,15 +381,43 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
         ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100)
         : null,
     }))
+    return { kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued }
+  }
 
+  async function generate() {
+    setLoading(true)
+    setGenerated(null)
+    setFeedbackOpen(false)
+    setFeedbackText('')
+    startPhaseTimer()
     const res = await fetch('/api/lessons/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued }),
+      body: JSON.stringify(buildPayload()),
     })
     const data = await res.json()
+    stopPhaseTimer()
     if (data.lesson) setGenerated(data.lesson)
     setLoading(false)
+  }
+
+  async function applyFeedback() {
+    if (!generated || !feedbackText.trim()) return
+    setApplyingFeedback(true)
+    setFeedbackOpen(false)
+    setLoading(true)
+    startPhaseTimer()
+    const res = await fetch('/api/lessons/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...buildPayload(), feedback: feedbackText.trim(), existingLesson: generated }),
+    })
+    const data = await res.json()
+    stopPhaseTimer()
+    if (data.lesson) setGenerated(data.lesson)
+    setLoading(false)
+    setApplyingFeedback(false)
+    setFeedbackText('')
   }
 
   function addToQueue() {
@@ -402,10 +457,44 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
       )}
 
       {loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
-          <div style={{ width: 36, height: 36, borderRadius: 99, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✦</div>
-          <div style={{ fontSize: 13, color: C.ink, textAlign: 'center' }}>Analysing {kid.name}&apos;s performance…</div>
-          <div style={{ fontSize: 10.5, color: C.ink3, letterSpacing: '.12em' }}>building personalised lesson</div>
+        <div style={{ padding: '4px 0 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>✦</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{applyingFeedback ? 'Applying your feedback…' : `Building lesson for ${kid.name}…`}</div>
+              <div style={{ fontSize: 11, color: C.ink4, marginTop: 1 }}>{LOADING_PHASES[phase].sub}</div>
+            </div>
+          </div>
+
+          {/* Progress steps */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {LOADING_PHASES.map((p, i) => {
+              const done = i < phase
+              const active = i === phase
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 99, flexShrink: 0,
+                    background: done ? C.ink : active ? C.lime : C.bg2,
+                    border: `2px solid ${done ? C.ink : active ? 'oklch(0.72 0.14 120)' : C.line}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 400ms',
+                  }}>
+                    {done && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#F6F3EC" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    {active && <div style={{ width: 6, height: 6, borderRadius: 99, background: C.limeInk, animation: 'pulse 1s ease-in-out infinite' }} />}
+                  </div>
+                  <span style={{ fontSize: 12.5, color: done ? C.ink3 : active ? C.ink : C.ink4, fontWeight: active ? 600 : 400, transition: 'color 400ms' }}>{p.label}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ marginTop: 16, height: 3, borderRadius: 99, background: C.line, overflow: 'hidden' }}>
+            <div style={{ height: '100%', borderRadius: 99, background: C.lime, width: `${Math.round(((phase + 0.5) / LOADING_PHASES.length) * 100)}%`, transition: 'width 800ms ease' }} />
+          </div>
+
+          <style>{`@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.75); } }`}</style>
         </div>
       )}
 
@@ -419,9 +508,42 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
             <div style={{ fontSize: 9.5, color: '#9B988C', letterSpacing: '.15em', textTransform: 'uppercase', marginBottom: 4 }}>Why now</div>
             <div style={{ fontSize: 12.5, color: '#CCC6B4', lineHeight: 1.45 }}>{generated.why_now}</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+
+          {/* Feedback panel */}
+          {feedbackOpen && (
+            <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)' }}>
+              <div style={{ fontSize: 11, color: C.lime, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8, fontFamily: 'var(--font-body)' }}>Your feedback</div>
+              <textarea
+                value={feedbackText}
+                onChange={e => setFeedbackText(e.target.value)}
+                placeholder="e.g. Make it harder, use a different topic, add more about X…"
+                rows={3}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(255,255,255,.07)', color: '#F6F3EC', fontSize: 13, fontFamily: 'var(--font-body)', resize: 'vertical', outline: 'none', lineHeight: 1.5 }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  onClick={applyFeedback}
+                  disabled={!feedbackText.trim()}
+                  style={{ flex: 1, background: C.lime, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, color: C.limeInk, cursor: feedbackText.trim() ? 'pointer' : 'not-allowed', opacity: feedbackText.trim() ? 1 : 0.5, fontFamily: 'var(--font-body)' }}
+                >
+                  Apply feedback →
+                </button>
+                <button
+                  onClick={() => { setFeedbackOpen(false); setFeedbackText('') }}
+                  style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
             <button onClick={() => setPreviewOpen(true)} style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Preview</button>
-            <Btn tone="lime" onClick={addToQueue} disabled={saving} style={{ flex: 1, justifyContent: 'center' }}>
+            {!feedbackOpen && (
+              <button onClick={() => setFeedbackOpen(true)} style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Give feedback</button>
+            )}
+            <Btn tone="lime" onClick={addToQueue} disabled={saving} style={{ flex: 1, justifyContent: 'center', minWidth: 120 }}>
               {saving ? 'Adding…' : '✓ Add to queue'}
             </Btn>
             <Btn tone="ghost" onClick={() => setGenerated(null)} style={{ border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA' }}>Discard</Btn>
