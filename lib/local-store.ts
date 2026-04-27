@@ -67,11 +67,19 @@ export interface StoredSession {
   feedback: StoredFeedback | null
 }
 
+export interface CustomTopic {
+  id: string
+  label: string
+  color: string
+}
+
 interface Store {
   profiles: Profile[]
   lessons: StoredLesson[]
   sessions: StoredSession[]
   progress: KidProgress[]
+  enabledTopicIds: string[] | null  // null = all enabled (default)
+  customTopics: CustomTopic[]
 }
 
 // ─── Storage helpers ───────────────────────────────────────────
@@ -79,7 +87,7 @@ interface Store {
 const KEY = 'curio:store'
 
 function empty(): Store {
-  return { profiles: [], lessons: [], sessions: [], progress: [] }
+  return { profiles: [], lessons: [], sessions: [], progress: [], enabledTopicIds: null, customTopics: [] }
 }
 
 export function loadStore(): Store {
@@ -244,6 +252,58 @@ export function addFeedback(sessionId: string, funRating: number, learnedSomethi
 export function getCompletedSessions(kidId?: string): StoredSession[] {
   const all = loadStore().sessions.filter(s => s.completed_at !== null)
   return kidId ? all.filter(s => s.kid_id === kidId) : all
+}
+
+// ─── Topics ────────────────────────────────────────────────────
+
+const TOPIC_COLORS = [
+  'oklch(0.72 0.12 295)', 'oklch(0.72 0.12 180)', 'oklch(0.72 0.12 40)',
+  'oklch(0.72 0.12 125)', 'oklch(0.72 0.12 220)', 'oklch(0.72 0.12 30)',
+  'oklch(0.72 0.12 155)', 'oklch(0.72 0.12 350)', 'oklch(0.72 0.12 270)',
+  'oklch(0.72 0.12 60)',  'oklch(0.72 0.12 10)',  'oklch(0.72 0.12 200)',
+]
+
+export function getAllTopics(): Subject[] {
+  const s = loadStore()
+  const custom = (s.customTopics ?? []).map(t => ({ id: t.id, label: t.label, color: t.color }))
+  return [...SUBJECTS, ...custom]
+}
+
+export function getEnabledTopicIds(): string[] {
+  const s = loadStore()
+  if (s.enabledTopicIds === null || s.enabledTopicIds === undefined) {
+    return getAllTopics().map(t => t.id)
+  }
+  return s.enabledTopicIds
+}
+
+export function setEnabledTopicIds(ids: string[]) {
+  const s = loadStore()
+  s.enabledTopicIds = ids
+  save(s)
+}
+
+export function addCustomTopic(label: string): CustomTopic {
+  const s = loadStore()
+  const colorIndex = (SUBJECTS.length + (s.customTopics ?? []).length) % TOPIC_COLORS.length
+  const topic: CustomTopic = {
+    id: label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+    label,
+    color: TOPIC_COLORS[colorIndex],
+  }
+  s.customTopics = [...(s.customTopics ?? []), topic]
+  // Auto-enable new topics
+  const enabled = getEnabledTopicIds()
+  s.enabledTopicIds = [...enabled, topic.id]
+  save(s)
+  return topic
+}
+
+export function removeCustomTopic(id: string) {
+  const s = loadStore()
+  s.customTopics = (s.customTopics ?? []).filter(t => t.id !== id)
+  s.enabledTopicIds = (s.enabledTopicIds ?? []).filter(tid => tid !== id)
+  save(s)
 }
 
 // ─── Progress ──────────────────────────────────────────────────

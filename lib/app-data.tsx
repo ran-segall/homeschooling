@@ -4,9 +4,9 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import * as store from './local-store'
 import { loadStore, SUBJECTS } from './local-store'
 import type { Profile, KidProgress, Subject } from './database.types'
-import type { StoredLesson, StoredSession, StoredStep } from './local-store'
+import type { StoredLesson, StoredSession, StoredStep, CustomTopic } from './local-store'
 
-export type { StoredLesson, StoredSession, StoredStep }
+export type { StoredLesson, StoredSession, StoredStep, CustomTopic }
 export { SUBJECTS }
 
 interface AppDataContextValue {
@@ -25,6 +25,13 @@ interface AppDataContextValue {
   getNextApprovedLesson: (kidId: string) => StoredLesson | null
   getProgress: (kidId: string) => KidProgress | null
   getCompletedSessions: (kidId?: string) => StoredSession[]
+
+  // Topics
+  allTopics: Subject[]
+  enabledTopicIds: string[]
+  setEnabledTopicIds: (ids: string[]) => void
+  addCustomTopic: (label: string) => CustomTopic
+  removeCustomTopic: (id: string) => void
 
   // Mutations — sync with localStorage then re-render
   addKid: (name: string, age: number, color: string) => Profile
@@ -70,6 +77,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value: AppDataContextValue = {
     ready,
     subjects: SUBJECTS,
+
+    allTopics: ready ? store.getAllTopics() : SUBJECTS,
+    enabledTopicIds: ready ? store.getEnabledTopicIds() : SUBJECTS.map(s => s.id),
+    setEnabledTopicIds: (ids) => { store.setEnabledTopicIds(ids); refresh() },
+    addCustomTopic: mut(store.addCustomTopic),
+    removeCustomTopic: (id) => { store.removeCustomTopic(id); refresh() },
 
     kids: snap.profiles.filter(p => p.role === 'kid'),
     getKidById: store.getKidById,

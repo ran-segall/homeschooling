@@ -340,7 +340,7 @@ const LOADING_PHASES = [
 ]
 
 function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
-  const { getCompletedSessions, getLessons, addLesson } = useAppData()
+  const { getCompletedSessions, getLessons, addLesson, enabledTopicIds } = useAppData()
   const [loading, setLoading] = useState(false)
   const [phase, setPhase] = useState(0)
   const [generated, setGenerated] = useState<GeneratedLesson | null>(null)
@@ -381,7 +381,7 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
         ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100)
         : null,
     }))
-    return { kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued }
+    return { kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued, enabledTopics: enabledTopicIds }
   }
 
   async function generate() {
@@ -557,6 +557,121 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
             />
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// ─── Topics Panel ─────────────────────────────────────────────
+
+function TopicsPanel() {
+  const { allTopics, enabledTopicIds, setEnabledTopicIds, addCustomTopic, removeCustomTopic } = useAppData()
+  const [adding, setAdding] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+
+  function toggle(id: string) {
+    if (enabledTopicIds.includes(id)) {
+      if (enabledTopicIds.length <= 1) return // keep at least one
+      setEnabledTopicIds(enabledTopicIds.filter(t => t !== id))
+    } else {
+      setEnabledTopicIds([...enabledTopicIds, id])
+    }
+  }
+
+  function handleAdd() {
+    const label = newLabel.trim()
+    if (!label) return
+    addCustomTopic(label)
+    setNewLabel('')
+    setAdding(false)
+  }
+
+  const defaultIds = new Set(SUBJECTS.map(s => s.id))
+  const customTopics = allTopics.filter(t => !defaultIds.has(t.id))
+
+  return (
+    <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, padding: '18px 22px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Lesson topics</div>
+          <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{enabledTopicIds.length} of {allTopics.length} active · AI picks from these when generating lessons</div>
+        </div>
+        <button
+          onClick={() => { setAdding(a => !a); setNewLabel('') }}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.line}`, background: adding ? C.bg2 : 'transparent', color: C.ink2, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+        >
+          {adding ? '✕ Cancel' : '+ Add topic'}
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {allTopics.map(topic => {
+          const enabled = enabledTopicIds.includes(topic.id)
+          const isCustom = !defaultIds.has(topic.id)
+          return (
+            <div
+              key={topic.id}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '7px 13px', borderRadius: 100, fontSize: 13, fontWeight: 500,
+                cursor: 'pointer', userSelect: 'none',
+                background: enabled ? C.ink : C.bg2,
+                color: enabled ? '#F6F3EC' : C.ink3,
+                border: `1px solid ${enabled ? C.ink : C.line}`,
+                transition: 'all 150ms',
+                opacity: enabled ? 1 : 0.6,
+              }}
+              onClick={() => toggle(topic.id)}
+            >
+              {enabled && (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#F6F3EC" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+              {topic.label}
+              {isCustom && enabled && (
+                <span
+                  onClick={e => { e.stopPropagation(); removeCustomTopic(topic.id) }}
+                  style={{ marginLeft: 2, fontSize: 11, opacity: 0.7, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                  title="Remove topic"
+                >✕</span>
+              )}
+              {isCustom && !enabled && (
+                <span
+                  onClick={e => { e.stopPropagation(); removeCustomTopic(topic.id) }}
+                  style={{ marginLeft: 2, fontSize: 11, opacity: 0.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                  title="Remove topic"
+                >✕</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {adding && (
+        <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            autoFocus
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') { setAdding(false); setNewLabel('') } }}
+            placeholder="e.g. Logic, Astronomy, Chess…"
+            style={{ flex: 1, padding: '9px 13px', borderRadius: 10, border: `1px solid ${C.line}`, background: C.bg, fontSize: 13.5, color: C.ink, fontFamily: 'var(--font-body)', outline: 'none' }}
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!newLabel.trim()}
+            style={{ padding: '9px 16px', borderRadius: 10, background: newLabel.trim() ? C.ink : C.bg2, color: newLabel.trim() ? '#F6F3EC' : C.ink4, border: 'none', fontSize: 13, fontWeight: 600, cursor: newLabel.trim() ? 'pointer' : 'not-allowed', fontFamily: 'var(--font-body)' }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      {customTopics.length === 0 && !adding && (
+        <div style={{ marginTop: 10, fontSize: 12, color: C.ink4 }}>
+          Click a topic to toggle it on or off. Add custom topics with the button above.
+        </div>
       )}
     </div>
   )
@@ -897,6 +1012,10 @@ export default function ParentPage() {
         </div>
       ) : (
         <div style={{ padding: '32px 28px 56px', display: 'grid', gridTemplateColumns: kids.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: 20, maxWidth: 1280, margin: '0 auto' }}>
+
+          <div style={{ gridColumn: '1 / -1' }}>
+            <TopicsPanel />
+          </div>
 
           {kids.map(kid => (
             <KidColumn key={kid.id} kid={kid} onRefresh={() => forceRender(n => n + 1)} />

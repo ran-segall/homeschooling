@@ -12,12 +12,13 @@ type RecentSession = {
 }
 
 export async function POST(req: NextRequest) {
-  const { kidId, kidName, kidAge, recentSessions, queuedSubjects, feedback, existingLesson } = await req.json() as {
+  const { kidId, kidName, kidAge, recentSessions, queuedSubjects, enabledTopics, feedback, existingLesson } = await req.json() as {
     kidId: string
     kidName: string
     kidAge: number
     recentSessions?: RecentSession[]
     queuedSubjects?: string[]
+    enabledTopics?: string[]
     feedback?: string
     existingLesson?: Record<string, unknown>
   }
@@ -72,7 +73,7 @@ ${queued.length > 0 ? `Already in queue (avoid): ${[...new Set(queued)].join(', 
 
 Generate ONE personalised micro-lesson. Prefer subjects not recently covered. If they struggled (score < 70%) in a subject, revisit it at a simpler angle. Choose a topic engaging for age ${kidAge}.
 
-Available subjects (use lowercase id in JSON): philosophy, geography, writing, money, tech, history, science, art
+Available subjects (use exact id from this list in JSON): ${(enabledTopics && enabledTopics.length > 0 ? enabledTopics : ['philosophy', 'geography', 'writing', 'money', 'tech', 'history', 'science', 'art']).join(', ')}
 
 Return ONLY valid JSON (no markdown fences):
 {
