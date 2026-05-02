@@ -762,8 +762,12 @@ function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids:
   const { getLessonById } = useAppData()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [filterKid, setFilterKid] = useState<string>('all')
+  const [showAll, setShowAll] = useState(false)
 
-  const filtered = filterKid === 'all' ? sessions : sessions.filter(s => s.kid_id === filterKid)
+  const sorted = [...sessions].sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? ''))
+  const filtered = (filterKid === 'all' ? sorted : sorted.filter(s => s.kid_id === filterKid))
+  const visible = showAll ? filtered : filtered.slice(0, 6)
+  const hiddenCount = filtered.length - 6
 
   const RESULT_COLORS = { correct: 'oklch(0.93 0.06 140)', wrong: 'oklch(0.95 0.04 20)', partial: 'oklch(0.95 0.04 60)' }
   const RESULT_FG = { correct: 'oklch(0.35 0.12 140)', wrong: 'oklch(0.45 0.12 20)', partial: 'oklch(0.42 0.12 60)' }
@@ -790,7 +794,7 @@ function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids:
       {filtered.length === 0 ? (
         <div style={{ padding: '40px 22px', textAlign: 'center', color: C.ink3, fontSize: 13 }}>No completed lessons yet.</div>
       ) : (
-        filtered.map((s, i) => {
+        visible.map((s, i) => {
           const isOpen = expanded === s.id
           const lesson = getLessonById(s.lesson_id)
           const subjectLabel = lesson ? (SUBJECTS.find(sub => sub.id === lesson.subject_id)?.label ?? lesson.subject_id) : '—'
@@ -893,6 +897,13 @@ function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids:
             </div>
           )
         })
+      )}
+      {!showAll && hiddenCount > 0 && (
+        <div style={{ padding: '16px 22px', borderTop: `1px solid ${C.line}`, textAlign: 'center' }}>
+          <button onClick={() => setShowAll(true)} style={{ fontSize: 13, fontWeight: 500, color: C.ink2, background: 'transparent', border: `1px solid ${C.line}`, borderRadius: 8, padding: '8px 20px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+            Show all ({hiddenCount} more)
+          </button>
+        </div>
       )}
     </div>
   )
