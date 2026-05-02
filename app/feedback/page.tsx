@@ -20,6 +20,7 @@ const LEARNED_OPTIONS = [
 const DIFFICULTY_OPTIONS = [
   { value: 'too_easy', label: 'Too easy' },
   { value: 'just_right', label: 'Just right' },
+  { value: 'a_bit_hard', label: 'A bit hard' },
   { value: 'too_hard', label: 'Really hard' },
 ]
 

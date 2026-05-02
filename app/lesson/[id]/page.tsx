@@ -258,6 +258,7 @@ function StepInteractive({ content, onNext }: { content: Record<string, unknown>
 function StepWrittenAnswer({ content, kid, onNext }: { content: Record<string, unknown>; kid: { name: string; age: number | null }; onNext: (answer: unknown, correct: boolean) => void }) {
   const [answer, setAnswer] = useState('')
   const [feedback, setFeedback] = useState('')
+  const [corrections, setCorrections] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
@@ -268,6 +269,7 @@ function StepWrittenAnswer({ content, kid, onNext }: { content: Record<string, u
       const res = await fetch('/api/ai-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: content.question, answer, kidName: kid.name, kidAge: kid.age }) })
       const data = await res.json()
       setFeedback(data.feedback)
+      setCorrections(data.corrections ?? [])
       setSubmitted(true)
     } finally { setLoading(false) }
   }
@@ -283,9 +285,19 @@ function StepWrittenAnswer({ content, kid, onNext }: { content: Record<string, u
           <p style={{ margin: 0, fontSize: 15, color: 'var(--ink)', lineHeight: 1.6 }}>{feedback}</p>
         </div>
       )}
+      {corrections.length > 0 && (
+        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'oklch(0.97 0.02 60)', border: '1px solid oklch(0.88 0.08 65)' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: 'oklch(0.42 0.12 60)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>A few writing tips ✏️</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {corrections.map((c, i) => (
+              <p key={i} style={{ margin: 0, fontSize: 14, color: 'oklch(0.35 0.10 60)', fontFamily: 'var(--font-body)' }}>{c}</p>
+            ))}
+          </div>
+        </div>
+      )}
       {!submitted
         ? <NextButton onClick={getAIFeedback} label={loading ? 'Thinking…' : 'Get feedback'} disabled={!answer.trim() || loading} />
-        : <NextButton onClick={() => onNext(answer, true)} label="Continue" />
+        : <NextButton onClick={() => onNext({ text: answer, corrections }, true)} label="Continue" />
       }
     </div>
   )

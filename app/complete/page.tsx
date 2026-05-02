@@ -10,7 +10,7 @@ function CompleteScreen() {
   const params = useSearchParams()
   const lessonId = params.get('lesson')
   const { kid } = useKid()
-  const { getLessonById, subjects, getProgress, updateProgress, markLessonCompleted } = useAppData()
+  const { getLessonById, subjects, getProgress, updateProgress, markLessonCompleted, getNextApprovedLesson } = useAppData()
 
   const [xpAnimated, setXpAnimated] = useState(0)
   const [done, setDone] = useState(false)
@@ -18,6 +18,8 @@ function CompleteScreen() {
   const lesson = lessonId ? getLessonById(lessonId) : null
   const subject = lesson ? subjects.find(s => s.id === lesson.subject_id) : null
   const progress = kid ? getProgress(kid.id) : null
+  const nextLesson = kid ? getNextApprovedLesson(kid.id) : null
+  const hasNextLesson = nextLesson !== null && nextLesson.id !== lessonId
 
   useEffect(() => {
     if (!kid || !lesson || !progress || done) return
@@ -92,14 +94,26 @@ function CompleteScreen() {
         </div>
       )}
 
-      <button onClick={() => router.push('/home')} style={{
-        padding: '16px 40px', fontSize: 16, fontWeight: 600,
-        background: 'var(--ink)', color: '#fff',
-        border: 'none', borderRadius: 100, cursor: 'pointer',
-        fontFamily: 'var(--font-body)',
-      }}>
-        Back to home
-      </button>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button onClick={() => router.push('/home')} style={{
+          padding: '16px 32px', fontSize: 15, fontWeight: 600,
+          background: 'transparent', color: 'var(--ink)',
+          border: '1px solid var(--line)', borderRadius: 100, cursor: 'pointer',
+          fontFamily: 'var(--font-body)',
+        }}>
+          Back to home
+        </button>
+        {hasNextLesson && (
+          <button onClick={() => router.push(`/lesson/${nextLesson!.id}`)} style={{
+            padding: '16px 32px', fontSize: 15, fontWeight: 600,
+            background: 'var(--ink)', color: '#fff',
+            border: 'none', borderRadius: 100, cursor: 'pointer',
+            fontFamily: 'var(--font-body)',
+          }}>
+            Next lesson →
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -755,7 +755,7 @@ function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) 
 // ─── Completed Lessons ────────────────────────────────────────
 
 const FUN_EMOJI: Record<number, string> = { 1: '😐', 2: '🙂', 3: '😄', 4: '🤩' }
-const DIFFICULTY_LABEL: Record<string, string> = { too_easy: 'Too easy', just_right: 'Just right', too_hard: 'Hard' }
+const DIFFICULTY_LABEL: Record<string, string> = { too_easy: 'Too easy', just_right: 'Just right', a_bit_hard: 'A bit hard', too_hard: 'Really hard' }
 const LEARNED_LABEL: Record<string, string> = { yes_lots: 'Learnt loads!', a_bit: 'A little', already_knew: 'Already knew it' }
 
 function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids: Profile[] }) {
@@ -836,10 +836,36 @@ function CompletedLessons({ sessions, kids }: { sessions: StoredSession[]; kids:
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {(s.responses ?? []).map((r, j) => {
                           const result = r.is_correct === true ? 'correct' : r.is_correct === false ? 'wrong' : 'partial'
+                          const matchedStep = lesson?.steps.find(st => st.id === r.step_id)
+                          const isWritten = matchedStep?.type === 'Written answer'
+                          const isSocratic = matchedStep?.type === 'Socratic'
+                          const writtenData = isWritten && r.answer && typeof r.answer === 'object' && r.answer !== null ? r.answer as { text?: string; corrections?: string[] } : null
+                          const writtenText = writtenData?.text ?? (isWritten || isSocratic ? (typeof r.answer === 'string' ? r.answer : null) : null)
+                          const corrections = writtenData?.corrections ?? []
+                          const stepQuestion = matchedStep?.content?.question as string | undefined
+
                           return (
-                            <div key={j} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 12, background: RESULT_COLORS[result as keyof typeof RESULT_COLORS] ?? C.bg }}>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: RESULT_FG[result as keyof typeof RESULT_FG] ?? C.ink3, textTransform: 'capitalize', whiteSpace: 'nowrap', marginTop: 1 }}>{result}</div>
-                              <div style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{`Step ${j + 1}`}</div>
+                            <div key={j} style={{ borderRadius: 12, border: `1px solid ${C.line}`, overflow: 'hidden', background: C.bg }}>
+                              <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, background: RESULT_COLORS[result as keyof typeof RESULT_COLORS] ?? C.bg }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: RESULT_FG[result as keyof typeof RESULT_FG] ?? C.ink3, textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{result}</div>
+                                <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, flex: 1 }}>
+                                  {matchedStep ? matchedStep.type : `Step ${j + 1}`}
+                                </div>
+                              </div>
+                              {(isWritten || isSocratic) && writtenText && (
+                                <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.line}` }}>
+                                  {stepQuestion && <p style={{ margin: '0 0 6px', fontSize: 11, color: C.ink4, fontStyle: 'italic' }}>{stepQuestion}</p>}
+                                  <p style={{ margin: 0, fontSize: 13, color: C.ink2, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{writtenText}</p>
+                                  {corrections.length > 0 && (
+                                    <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: 'oklch(0.97 0.02 60)', border: '1px solid oklch(0.88 0.08 65)' }}>
+                                      <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 600, color: 'oklch(0.42 0.12 60)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Writing tips ✏️</p>
+                                      {corrections.map((c, k) => (
+                                        <p key={k} style={{ margin: k === 0 ? 0 : '3px 0 0', fontSize: 12, color: 'oklch(0.38 0.10 60)' }}>{c}</p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )
                         })}
