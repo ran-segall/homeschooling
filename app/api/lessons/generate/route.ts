@@ -12,7 +12,7 @@ type RecentSession = {
 }
 
 export async function POST(req: NextRequest) {
-  const { kidId, kidName, kidAge, recentSessions, queuedSubjects, enabledTopics, feedback, existingLesson } = await req.json() as {
+  const { kidId, kidName, kidAge, recentSessions, queuedSubjects, enabledTopics, feedback, existingLesson, conceptOnly, specificTopic, approvedConcept } = await req.json() as {
     kidId: string
     kidName: string
     kidAge: number
@@ -21,10 +21,57 @@ export async function POST(req: NextRequest) {
     enabledTopics?: string[]
     feedback?: string
     existingLesson?: Record<string, unknown>
+    conceptOnly?: boolean
+    specificTopic?: string
+    approvedConcept?: Record<string, unknown>
   }
 
   const sessions = recentSessions ?? []
   const queued = queuedSubjects ?? []
+
+  const allSubjects = ['philosophy', 'geography', 'writing', 'money', 'tech', 'history', 'science', 'art']
+
+  // ── Concept-only mode: return title/description/why_now without steps ──
+  if (conceptOnly && specificTopic) {
+    const recentLines = sessions.map(s =>
+      `- subject: ${s.subject_id ?? 'unknown'}, score: ${s.score_pct ?? '?'}%`
+    )
+    const conceptPrompt = `You are a curriculum designer for Curio, a homeschool app.
+
+Kid: ${kidName}, age ${kidAge}
+${recentLines.length > 0 ? `Recent lessons:\n${recentLines.join('\n')}` : 'No previous lessons.'}
+
+The parent has chosen this topic: "${specificTopic}"
+
+Create a compelling lesson concept on "${specificTopic}" appropriate for age ${kidAge}. The lesson should take around 15 minutes.
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "subject": "most fitting subject id from: ${allSubjects.join(', ')}",
+  "title": "compelling lesson title under 6 words",
+  "description": "one sentence what this lesson teaches",
+  "why_now": "one sentence why this topic is a great choice for ${kidName} right now",
+  "xp_reward": 75
+}`
+
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: conceptPrompt }],
+    })
+    const raw = msg.content[0].type === 'text' ? msg.content[0].text.trim() : ''
+    try {
+      const m = raw.match(/\{[\s\S]*\}/)
+      if (!m) throw new Error('No JSON')
+      const concept = JSON.parse(m[0])
+      concept.id = `concept-${Date.now()}`
+      concept.status = 'pending'
+      concept.assigned_to = kidId
+      return NextResponse.json({ lesson: concept })
+    } catch {
+      return NextResponse.json({ error: 'Failed to generate concept' }, { status: 500 })
+    }
+  }
 
   const avgScore = sessions.filter(s => s.score_pct != null).length
     ? Math.round(sessions.filter(s => s.score_pct != null).reduce((sum, s) => sum + (s.score_pct ?? 0), 0) / sessions.filter(s => s.score_pct != null).length)
@@ -38,7 +85,8 @@ export async function POST(req: NextRequest) {
   )
 
   const stepSchema = `[
-    {"type": "Read", "content": {"text": "A rich introductory passage of 5-7 sentences covering the topic broadly. Use vivid examples and engaging language for age ${kidAge}. Make it feel like a story or discovery, not a textbook."}},
+    {"type": "Multiple choice", "content": {"question": "A curiosity-hook question that makes ${kidName} think and guess — something surprising, counterintuitive, or cool about the topic. The question should spark motivation to learn more, not test prior knowledge. All 4 options should be plausible guesses. Include a note field with a short, exciting line like 'Take your best guess — the answer is in the lesson!'", "options": ["A","B","C","D"], "correct": 2, "note": "Take your best guess — the answer is coming up!"}},
+    {"type": "Read", "content": {"text": "A rich introductory passage of 5-7 sentences covering the topic broadly. Use vivid examples and engaging language for age ${kidAge}. Make it feel like a story or discovery, not a textbook. Reference back to the opening question naturally."}},
     {"type": "Multiple choice", "content": {"question": "Comprehension question from the reading above", "options": ["A","B","C","D"], "correct": 1}},
     {"type": "Drag to order OR Drag to match", "content": {"question": "...", "items": ["item1","item2","item3","item4"] (for order) OR "pairs": [["left1","right1"],["left2","right2"],["left3","right3"]] (for match)}},
     {"type": "Read", "content": {"text": "A second passage of 5-7 sentences going deeper — a surprising fact, a different angle, or a real-world connection. Keep it engaging and age-appropriate."}},
@@ -66,6 +114,28 @@ Revise the lesson to address the feedback. Keep what works, fix what was flagged
   "why_now": "one sentence why this lesson is right for ${kidName} right now",
   "xp_reward": 75,
   "steps": ${stepSchema}
+}` : approvedConcept ? `You are a curriculum designer for Curio, a homeschool educational app.
+
+Kid: ${kidName}, age ${kidAge}
+${recentLines.length > 0
+    ? `Recent lessons:\n${recentLines.join('\n')}\nAverage score: ${avgScore ?? '?'}%`
+    : 'No lessons completed yet.'}
+
+The parent has approved this lesson concept — generate the full lesson content for it:
+Title: "${approvedConcept.title}"
+Subject: ${approvedConcept.subject}
+Description: ${approvedConcept.description}
+
+Build the complete lesson exactly on this concept. The lesson should take around 15 minutes to complete.
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "subject": "${approvedConcept.subject}",
+  "title": "${approvedConcept.title}",
+  "description": "${approvedConcept.description}",
+  "why_now": "${approvedConcept.why_now}",
+  "xp_reward": ${approvedConcept.xp_reward ?? 75},
+  "steps": ${stepSchema}
 }` : `You are a curriculum designer for Curio, a homeschool educational app.
 
 Kid: ${kidName}, age ${kidAge}
@@ -75,10 +145,11 @@ ${recentLines.length > 0
 ${weakSubjects.length > 0 ? `Struggling with: ${[...new Set(weakSubjects)].join(', ')}` : ''}
 ${recentSubjects.length > 0 ? `Recently covered: ${[...new Set(recentSubjects)].join(', ')}` : ''}
 ${queued.length > 0 ? `Already in queue (avoid): ${[...new Set(queued)].join(', ')}` : ''}
+${specificTopic ? `The parent has chosen this topic: "${specificTopic}"` : ''}
 
-Generate ONE personalised lesson designed to take around 15 minutes. Prefer subjects not recently covered. If they struggled (score < 70%) in a subject, revisit it at a simpler angle. Choose a topic engaging for age ${kidAge}.
+Generate ONE personalised lesson designed to take around 15 minutes.${specificTopic ? ` Build the lesson on "${specificTopic}".` : ' Prefer subjects not recently covered.'}
 
-Available subjects (use exact id from this list in JSON): ${(enabledTopics && enabledTopics.length > 0 ? enabledTopics : ['philosophy', 'geography', 'writing', 'money', 'tech', 'history', 'science', 'art']).join(', ')}
+Available subjects (use exact id from this list in JSON): ${(enabledTopics && enabledTopics.length > 0 ? enabledTopics : allSubjects).join(', ')}
 
 Return ONLY valid JSON (no markdown fences):
 {

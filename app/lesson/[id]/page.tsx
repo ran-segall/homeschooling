@@ -94,6 +94,7 @@ function StepMultipleChoice({ content, onNext }: { content: Record<string, unkno
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <p style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.5, margin: 0 }}>{content.question as string}</p>
+      {!!content.note && <p style={{ fontSize: 13, color: 'var(--ink3)', margin: '-12px 0 0', fontStyle: 'italic' }}>{String(content.note)}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {options.map((opt, i) => {
           const isSelected = selected === i

@@ -327,39 +327,53 @@ function LessonCard({ lesson, onApprove, onReject, onPreview }: { lesson: Stored
   )
 }
 
-// ─── Generate Card ────────────────────────────────────────────
+// ─── Create Lesson Modal ──────────────────────────────────────
 
-type GeneratedLesson = { id: string; subject: string; title: string; description: string; why_now: string; xp_reward: number; steps: StoredLesson['steps']; status: string; assigned_to: string }
+type CreateStep = 'topic' | 'concept-loading' | 'concept' | 'generating'
+
+type Concept = { subject: string; title: string; description: string; why_now: string; xp_reward: number }
 
 const LOADING_PHASES = [
-  { label: 'Reviewing recent lessons', sub: 'analysing scores & feedback patterns' },
-  { label: 'Choosing subject & topic', sub: 'finding the right angle for right now' },
+  { label: 'Reading the lesson concept', sub: 'understanding the approved direction' },
   { label: 'Writing lesson content', sub: 'crafting the reading and questions' },
   { label: 'Building interactive steps', sub: 'drag, match & socratic activities' },
   { label: 'Finalising lesson', sub: 'polishing and wrapping up' },
 ]
 
-function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
-  const { getCompletedSessions, getLessons, addLesson, enabledTopicIds } = useAppData()
-  const [loading, setLoading] = useState(false)
+function CreateLessonModal({ kid, onClose, onAdded }: { kid: Profile; onClose: () => void; onAdded: () => void }) {
+  const { allTopics, getCompletedSessions, getLessons, addLesson, addCustomTopic } = useAppData()
+  const [step, setStep] = useState<CreateStep>('topic')
+  const [selectedTopicId, setSelectedTopicId] = useState('')
+  const [customTopic, setCustomTopic] = useState('')
+  const [concept, setConcept] = useState<Concept | null>(null)
   const [phase, setPhase] = useState(0)
-  const [generated, setGenerated] = useState<GeneratedLesson | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [feedbackText, setFeedbackText] = useState('')
-  const [applyingFeedback, setApplyingFeedback] = useState(false)
-  const phaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [error, setError] = useState('')
+  const phaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const chosenTopic = customTopic.trim() || (selectedTopicId ? allTopics.find(t => t.id === selectedTopicId)?.label ?? selectedTopicId : '')
+  const canProceed = !!chosenTopic
+
+  function buildBasePayload() {
+    const rawSessions = getCompletedSessions(kid.id).slice(0, 6)
+    const queued = getLessons(kid.id, ['pending', 'approved']).map(l => l.subject_id)
+    const recentSessions = rawSessions.map(s => ({
+      lesson_id: s.lesson_id,
+      subject_id: s.lesson_id ?? '',
+      fun_rating: s.feedback?.fun_rating ?? null,
+      difficulty: s.feedback?.difficulty ?? null,
+      score_pct: s.responses?.length
+        ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100)
+        : null,
+    }))
+    return { kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued }
+  }
 
   function startPhaseTimer() {
     setPhase(0)
-    const delays = [1400, 2400, 3000, 2400]
+    const delays = [2000, 2800, 2400]
     function advance(i: number) {
       if (i >= LOADING_PHASES.length - 1) return
-      phaseTimerRef.current = setTimeout(() => {
-        setPhase(i + 1)
-        advance(i + 1)
-      }, delays[i] ?? 2000)
+      phaseTimerRef.current = setTimeout(() => { setPhase(i + 1); advance(i + 1) }, delays[i] ?? 2000)
     }
     advance(0)
   }
@@ -369,310 +383,218 @@ function GenerateCard({ kid, onAdded }: { kid: Profile; onAdded: () => void }) {
     setPhase(LOADING_PHASES.length - 1)
   }
 
-  function buildPayload() {
-    const rawSessions = getCompletedSessions(kid.id).slice(0, 6)
-    const queued = getLessons(kid.id, ['pending', 'approved']).map(l => l.subject_id)
-    const recentSessions = rawSessions.map(s => ({
-      lesson_id: s.lesson_id,
-      subject_id: SUBJECTS.find(() => true)?.id ?? '',
-      fun_rating: s.feedback?.fun_rating ?? null,
-      difficulty: s.feedback?.difficulty ?? null,
-      score_pct: s.responses?.length
-        ? Math.round((s.responses.filter(r => r.is_correct).length / s.responses.length) * 100)
-        : null,
-    }))
-    return { kidId: kid.id, kidName: kid.name, kidAge: kid.age, recentSessions, queuedSubjects: queued, enabledTopics: enabledTopicIds }
-  }
-
-  async function generate() {
-    setLoading(true)
-    setGenerated(null)
-    setFeedbackOpen(false)
-    setFeedbackText('')
-    startPhaseTimer()
+  async function generateConcept() {
+    setError('')
+    setStep('concept-loading')
     const res = await fetch('/api/lessons/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildPayload()),
+      body: JSON.stringify({ ...buildBasePayload(), conceptOnly: true, specificTopic: chosenTopic }),
     })
     const data = await res.json()
-    stopPhaseTimer()
-    if (data.lesson) setGenerated(data.lesson)
-    setLoading(false)
-  }
-
-  async function applyFeedback() {
-    if (!generated || !feedbackText.trim()) return
-    setApplyingFeedback(true)
-    setFeedbackOpen(false)
-    setLoading(true)
-    startPhaseTimer()
-    const res = await fetch('/api/lessons/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...buildPayload(), feedback: feedbackText.trim(), existingLesson: generated }),
-    })
-    const data = await res.json()
-    stopPhaseTimer()
-    if (data.lesson) setGenerated(data.lesson)
-    setLoading(false)
-    setApplyingFeedback(false)
-    setFeedbackText('')
-  }
-
-  function addToQueue() {
-    if (!generated) return
-    setSaving(true)
-    addLesson({
-      title: generated.title,
-      subject_id: generated.subject.toLowerCase(),
-      assigned_to: kid.id,
-      status: 'pending',
-      why_now: generated.why_now,
-      xp_reward: generated.xp_reward,
-      order_index: 99,
-      description: generated.description,
-      steps: (generated.steps ?? []).map(s => ({ type: s.type, content: s.content })),
-    })
-    setGenerated(null)
-    setSaving(false)
-    onAdded()
-  }
-
-  const isDark = !!generated && !loading
-
-  return (
-    <div style={{ borderRadius: 16, border: `1px solid ${isDark ? C.ink : C.line}`, background: isDark ? C.ink : C.card, padding: 18, transition: 'all 300ms' }}>
-      {!generated && !loading && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: C.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>✦</div>
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>Generate next lesson</div>
-              <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1 }}>Based on {kid.name}&apos;s recent performance</div>
-            </div>
-          </div>
-          <Btn tone="ink" onClick={generate} style={{ width: '100%', justifyContent: 'center' }}>Generate for {kid.name} →</Btn>
-        </>
-      )}
-
-      {loading && (
-        <div style={{ padding: '4px 0 8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>✦</div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{applyingFeedback ? 'Applying your feedback…' : `Building lesson for ${kid.name}…`}</div>
-              <div style={{ fontSize: 11, color: C.ink4, marginTop: 1 }}>{LOADING_PHASES[phase].sub}</div>
-            </div>
-          </div>
-
-          {/* Progress steps */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {LOADING_PHASES.map((p, i) => {
-              const done = i < phase
-              const active = i === phase
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: 99, flexShrink: 0,
-                    background: done ? C.ink : active ? C.lime : C.bg2,
-                    border: `2px solid ${done ? C.ink : active ? 'oklch(0.72 0.14 120)' : C.line}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all 400ms',
-                  }}>
-                    {done && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#F6F3EC" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    {active && <div style={{ width: 6, height: 6, borderRadius: 99, background: C.limeInk, animation: 'pulse 1s ease-in-out infinite' }} />}
-                  </div>
-                  <span style={{ fontSize: 12.5, color: done ? C.ink3 : active ? C.ink : C.ink4, fontWeight: active ? 600 : 400, transition: 'color 400ms' }}>{p.label}</span>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Progress bar */}
-          <div style={{ marginTop: 16, height: 3, borderRadius: 99, background: C.line, overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: 99, background: C.lime, width: `${Math.round(((phase + 0.5) / LOADING_PHASES.length) * 100)}%`, transition: 'width 800ms ease' }} />
-          </div>
-
-          <style>{`@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.75); } }`}</style>
-        </div>
-      )}
-
-      {generated && !loading && (
-        <>
-          <div style={{ fontSize: 10, color: C.lime, letterSpacing: '.2em', textTransform: 'uppercase', marginBottom: 10, fontFamily: 'var(--font-body)' }}>Generated for {kid.name}</div>
-          <Chip tone="lime" style={{ marginBottom: 10 }}>{generated.subject}</Chip>
-          <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, letterSpacing: '-.02em', lineHeight: 1.15, color: '#F6F3EC', marginTop: 8 }}>{generated.title}</div>
-          <div style={{ fontSize: 13, color: '#BEB9AA', marginTop: 8, lineHeight: 1.5 }}>{generated.description}</div>
-          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.08)' }}>
-            <div style={{ fontSize: 9.5, color: '#9B988C', letterSpacing: '.15em', textTransform: 'uppercase', marginBottom: 4 }}>Why now</div>
-            <div style={{ fontSize: 12.5, color: '#CCC6B4', lineHeight: 1.45 }}>{generated.why_now}</div>
-          </div>
-
-          {/* Feedback panel */}
-          {feedbackOpen && (
-            <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)' }}>
-              <div style={{ fontSize: 11, color: C.lime, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8, fontFamily: 'var(--font-body)' }}>Your feedback</div>
-              <textarea
-                value={feedbackText}
-                onChange={e => setFeedbackText(e.target.value)}
-                placeholder="e.g. Make it harder, use a different topic, add more about X…"
-                rows={3}
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(255,255,255,.07)', color: '#F6F3EC', fontSize: 13, fontFamily: 'var(--font-body)', resize: 'vertical', outline: 'none', lineHeight: 1.5 }}
-              />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button
-                  onClick={applyFeedback}
-                  disabled={!feedbackText.trim()}
-                  style={{ flex: 1, background: C.lime, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, color: C.limeInk, cursor: feedbackText.trim() ? 'pointer' : 'not-allowed', opacity: feedbackText.trim() ? 1 : 0.5, fontFamily: 'var(--font-body)' }}
-                >
-                  Apply feedback →
-                </button>
-                <button
-                  onClick={() => { setFeedbackOpen(false); setFeedbackText('') }}
-                  style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-            <button onClick={() => setPreviewOpen(true)} style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Preview</button>
-            {!feedbackOpen && (
-              <button onClick={() => setFeedbackOpen(true)} style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA', fontSize: 12, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Give feedback</button>
-            )}
-            <Btn tone="lime" onClick={addToQueue} disabled={saving} style={{ flex: 1, justifyContent: 'center', minWidth: 120 }}>
-              {saving ? 'Adding…' : '✓ Add to queue'}
-            </Btn>
-            <Btn tone="ghost" onClick={() => setGenerated(null)} style={{ border: '1px solid rgba(255,255,255,.15)', color: '#BEB9AA' }}>Discard</Btn>
-          </div>
-          {previewOpen && generated && (
-            <LessonPreviewModal
-              lesson={{ id: 'preview', title: generated.title, subject_id: generated.subject.toLowerCase(), description: generated.description, why_now: generated.why_now, xp_reward: generated.xp_reward, status: generated.status, assigned_to: kid.id, steps: generated.steps ?? [], order_index: 99 }}
-              onClose={() => setPreviewOpen(false)}
-              onApprove={() => { addToQueue(); setPreviewOpen(false) }}
-              onReject={() => { setGenerated(null); setPreviewOpen(false) }}
-            />
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-// ─── Topics Panel ─────────────────────────────────────────────
-
-function TopicsPanel() {
-  const { allTopics, enabledTopicIds, setEnabledTopicIds, addCustomTopic, removeCustomTopic } = useAppData()
-  const [adding, setAdding] = useState(false)
-  const [newLabel, setNewLabel] = useState('')
-
-  function toggle(id: string) {
-    if (enabledTopicIds.includes(id)) {
-      if (enabledTopicIds.length <= 1) return // keep at least one
-      setEnabledTopicIds(enabledTopicIds.filter(t => t !== id))
+    if (data.lesson) {
+      setConcept(data.lesson)
+      setStep('concept')
     } else {
-      setEnabledTopicIds([...enabledTopicIds, id])
+      setError('Something went wrong. Please try again.')
+      setStep('topic')
     }
   }
 
-  function handleAdd() {
-    const label = newLabel.trim()
-    if (!label) return
-    addCustomTopic(label)
-    setNewLabel('')
-    setAdding(false)
+  async function generateFullLesson() {
+    if (!concept) return
+    setStep('generating')
+    startPhaseTimer()
+    const res = await fetch('/api/lessons/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...buildBasePayload(), approvedConcept: concept }),
+    })
+    const data = await res.json()
+    stopPhaseTimer()
+    if (data.lesson) {
+      const lesson = data.lesson
+      // If the user typed a truly custom topic (not in the existing list), save it
+      if (customTopic.trim() && !allTopics.find(t => t.label.toLowerCase() === customTopic.trim().toLowerCase())) {
+        addCustomTopic(customTopic.trim())
+      }
+      addLesson({
+        title: lesson.title,
+        subject_id: lesson.subject?.toLowerCase() ?? concept.subject.toLowerCase(),
+        assigned_to: kid.id,
+        status: 'pending',
+        why_now: lesson.why_now ?? concept.why_now,
+        xp_reward: lesson.xp_reward ?? concept.xp_reward,
+        order_index: 99,
+        description: lesson.description ?? concept.description,
+        steps: (lesson.steps ?? []).map((s: { type: string; content: Record<string, unknown> }) => ({ type: s.type, content: s.content })),
+      })
+      onAdded()
+      onClose()
+    } else {
+      setError('Failed to generate lesson. Please try again.')
+      setStep('concept')
+    }
   }
 
-  const defaultIds = new Set(SUBJECTS.map(s => s.id))
-  const customTopics = allTopics.filter(t => !defaultIds.has(t.id))
+  const subjectLabel = concept ? (SUBJECTS.find(s => s.id === concept.subject)?.label ?? concept.subject) : ''
+  const subColors = concept ? (SUBJECT_COLORS[subjectLabel] ?? { bg: C.bg2, fg: C.ink3 }) : { bg: C.bg2, fg: C.ink3 }
 
   return (
-    <div style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, padding: '18px 22px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Lesson topics</div>
-          <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{enabledTopicIds.length} of {allTopics.length} active · AI picks from these when generating lessons</div>
-        </div>
-        <button
-          onClick={() => { setAdding(a => !a); setNewLabel('') }}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.line}`, background: adding ? C.bg2 : 'transparent', color: C.ink2, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-        >
-          {adding ? '✕ Cancel' : '+ Add topic'}
-        </button>
-      </div>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(22,20,15,.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, background: C.bg, borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden' }}>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {allTopics.map(topic => {
-          const enabled = enabledTopicIds.includes(topic.id)
-          const isCustom = !defaultIds.has(topic.id)
-          return (
-            <div
-              key={topic.id}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '7px 13px', borderRadius: 100, fontSize: 13, fontWeight: 500,
-                cursor: 'pointer', userSelect: 'none',
-                background: enabled ? C.ink : C.bg2,
-                color: enabled ? '#F6F3EC' : C.ink3,
-                border: `1px solid ${enabled ? C.ink : C.line}`,
-                transition: 'all 150ms',
-                opacity: enabled ? 1 : 0.6,
-              }}
-              onClick={() => toggle(topic.id)}
-            >
-              {enabled && (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#F6F3EC" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              )}
-              {topic.label}
-              {isCustom && enabled && (
-                <span
-                  onClick={e => { e.stopPropagation(); removeCustomTopic(topic.id) }}
-                  style={{ marginLeft: 2, fontSize: 11, opacity: 0.7, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
-                  title="Remove topic"
-                >✕</span>
-              )}
-              {isCustom && !enabled && (
-                <span
-                  onClick={e => { e.stopPropagation(); removeCustomTopic(topic.id) }}
-                  style={{ marginLeft: 2, fontSize: 11, opacity: 0.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
-                  title="Remove topic"
-                >✕</span>
-              )}
+        {/* Topic picker */}
+        {step === 'topic' && (
+          <div style={{ padding: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-serif)', fontSize: 24, fontWeight: 400, color: C.ink, lineHeight: 1.15 }}>What should {kid.name} learn next?</div>
+                <div style={{ fontSize: 12.5, color: C.ink3, marginTop: 6 }}>Pick a topic or describe something specific</div>
+              </div>
+              <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 99, background: C.bg2, border: 0, cursor: 'pointer', fontSize: 15, color: C.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12, marginTop: 2 }}>✕</button>
             </div>
-          )
-        })}
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {allTopics.map(topic => {
+                const active = selectedTopicId === topic.id && !customTopic.trim()
+                return (
+                  <button
+                    key={topic.id}
+                    onClick={() => { setSelectedTopicId(topic.id); setCustomTopic('') }}
+                    style={{
+                      padding: '8px 15px', borderRadius: 100, fontSize: 13.5, fontWeight: 500, cursor: 'pointer',
+                      background: active ? C.ink : C.card,
+                      color: active ? '#F6F3EC' : C.ink2,
+                      border: `1.5px solid ${active ? C.ink : C.line}`,
+                      fontFamily: 'var(--font-body)', transition: 'all 120ms',
+                    }}
+                  >
+                    {topic.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.ink3, letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Or describe something specific</div>
+              <input
+                value={customTopic}
+                onChange={e => { setCustomTopic(e.target.value); if (e.target.value.trim()) setSelectedTopicId('') }}
+                onKeyDown={e => { if (e.key === 'Enter' && canProceed) generateConcept() }}
+                placeholder="e.g. how black holes form, the Roman Republic, binary numbers…"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '11px 14px', borderRadius: 10, border: `1.5px solid ${customTopic.trim() ? C.ink : C.line}`, background: C.card, fontSize: 13.5, color: C.ink, fontFamily: 'var(--font-body)', outline: 'none' }}
+              />
+            </div>
+
+            {error && <div style={{ marginBottom: 12, fontSize: 12.5, color: C.rose, padding: '10px 12px', background: 'oklch(0.97 0.03 20)', borderRadius: 8, border: `1px solid oklch(0.88 0.06 20)` }}>{error}</div>}
+
+            <button
+              onClick={generateConcept}
+              disabled={!canProceed}
+              style={{ width: '100%', padding: '13px 20px', borderRadius: 12, background: canProceed ? C.ink : C.bg2, color: canProceed ? '#F6F3EC' : C.ink4, border: 'none', fontSize: 14, fontWeight: 600, cursor: canProceed ? 'pointer' : 'not-allowed', fontFamily: 'var(--font-body)', transition: 'all 150ms' }}
+            >
+              Generate lesson concept →
+            </button>
+          </div>
+        )}
+
+        {/* Concept loading */}
+        {step === 'concept-loading' && (
+          <div style={{ padding: '48px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>✦</div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: C.ink }}>Thinking about &ldquo;{chosenTopic}&rdquo;…</div>
+              <div style={{ fontSize: 12.5, color: C.ink3, marginTop: 6 }}>Finding the right angle for {kid.name}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              {[0, 1, 2].map(i => (
+                <div key={i} style={{ width: 7, height: 7, borderRadius: 99, background: C.ink, opacity: 0.25, animation: `dot-pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+              ))}
+            </div>
+            <style>{`@keyframes dot-pulse { 0%,100% { opacity: .25; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }`}</style>
+          </div>
+        )}
+
+        {/* Concept preview */}
+        {step === 'concept' && concept && (
+          <div style={{ padding: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 99, background: 'oklch(0.65 0.14 140)' }} />
+              <span style={{ fontSize: 11.5, color: 'oklch(0.40 0.10 140)', fontWeight: 500 }}>Lesson concept ready</span>
+              <button onClick={onClose} style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: 99, background: C.bg2, border: 0, cursor: 'pointer', fontSize: 14, color: C.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'inline-flex', padding: '5px 12px', borderRadius: 100, background: subColors.bg, color: subColors.fg, fontSize: 12, fontWeight: 600, marginBottom: 14 }}>{subjectLabel || concept.subject}</div>
+
+            <div style={{ fontFamily: 'var(--font-serif)', fontSize: 28, letterSpacing: '-.02em', lineHeight: 1.2, color: C.ink, marginBottom: 10 }}>{concept.title}</div>
+            <div style={{ fontSize: 14, color: C.ink2, lineHeight: 1.6, marginBottom: 18 }}>{concept.description}</div>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px', background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, marginBottom: 24 }}>
+              <div style={{ width: 6, height: 6, borderRadius: 99, background: C.violet, marginTop: 6, flexShrink: 0 }} />
+              <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.55 }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>Why now: </span>{concept.why_now}
+              </div>
+            </div>
+
+            {error && <div style={{ marginBottom: 14, fontSize: 12.5, color: C.rose, padding: '10px 12px', background: 'oklch(0.97 0.03 20)', borderRadius: 8, border: `1px solid oklch(0.88 0.06 20)` }}>{error}</div>}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setStep('topic')}
+                style={{ padding: '11px 16px', borderRadius: 10, background: 'transparent', border: `1px solid ${C.line}`, color: C.ink2, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+              >
+                ← Pick different topic
+              </button>
+              <button
+                onClick={generateFullLesson}
+                style={{ flex: 1, padding: '11px 20px', borderRadius: 10, background: C.ink, color: '#F6F3EC', border: 'none', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+              >
+                Create full lesson →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Full lesson generating */}
+        {step === 'generating' && (
+          <div style={{ padding: '28px 28px 32px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: C.lime, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>✦</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>Building lesson for {kid.name}…</div>
+                <div style={{ fontSize: 11.5, color: C.ink4, marginTop: 2 }}>{LOADING_PHASES[phase]?.sub}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {LOADING_PHASES.map((p, i) => {
+                const done = i < phase
+                const active = i === phase
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 22, height: 22, borderRadius: 99, flexShrink: 0, background: done ? C.ink : active ? C.lime : C.bg2, border: `2px solid ${done ? C.ink : active ? 'oklch(0.72 0.14 120)' : C.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 400ms' }}>
+                      {done && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#F6F3EC" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      {active && <div style={{ width: 6, height: 6, borderRadius: 99, background: C.limeInk, animation: 'pulse 1s ease-in-out infinite' }} />}
+                    </div>
+                    <span style={{ fontSize: 13, color: done ? C.ink3 : active ? C.ink : C.ink4, fontWeight: active ? 600 : 400, transition: 'color 400ms' }}>{p.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ marginTop: 20, height: 3, borderRadius: 99, background: C.line, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 99, background: C.lime, width: `${Math.round(((phase + 0.5) / LOADING_PHASES.length) * 100)}%`, transition: 'width 800ms ease' }} />
+            </div>
+
+            <div style={{ marginTop: 16, fontSize: 12, color: C.ink4, textAlign: 'center' }}>
+              The lesson will appear in the queue for you to review
+            </div>
+
+            <style>{`@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.75); } }`}</style>
+          </div>
+        )}
       </div>
-
-      {adding && (
-        <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            autoFocus
-            value={newLabel}
-            onChange={e => setNewLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') { setAdding(false); setNewLabel('') } }}
-            placeholder="e.g. Logic, Astronomy, Chess…"
-            style={{ flex: 1, padding: '9px 13px', borderRadius: 10, border: `1px solid ${C.line}`, background: C.bg, fontSize: 13.5, color: C.ink, fontFamily: 'var(--font-body)', outline: 'none' }}
-          />
-          <button
-            onClick={handleAdd}
-            disabled={!newLabel.trim()}
-            style={{ padding: '9px 16px', borderRadius: 10, background: newLabel.trim() ? C.ink : C.bg2, color: newLabel.trim() ? '#F6F3EC' : C.ink4, border: 'none', fontSize: 13, fontWeight: 600, cursor: newLabel.trim() ? 'pointer' : 'not-allowed', fontFamily: 'var(--font-body)' }}
-          >
-            Add
-          </button>
-        </div>
-      )}
-
-      {customTopics.length === 0 && !adding && (
-        <div style={{ marginTop: 10, fontSize: 12, color: C.ink4 }}>
-          Click a topic to toggle it on or off. Add custom topics with the button above.
-        </div>
-      )}
     </div>
   )
 }
@@ -682,6 +604,7 @@ function TopicsPanel() {
 function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) {
   const { getLessons, getProgress, approveLesson, deleteLesson } = useAppData()
   const [preview, setPreview] = useState<StoredLesson | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const progress = getProgress(kid.id)
   const lessons = getLessons(kid.id, ['pending', 'approved'])
@@ -710,7 +633,7 @@ function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) 
         <div style={{ padding: '12px 16px', borderRadius: 12, background: 'oklch(0.96 0.04 80)', border: '1px solid oklch(0.88 0.08 65)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 16 }}>⚠️</span>
           <span style={{ fontSize: 13, color: 'oklch(0.38 0.12 65)' }}>
-            {approved === 0 ? `${kid.name} has no approved lessons — generate and approve one below.` : `Only 1 lesson left for ${kid.name} — generate more soon.`}
+            {approved === 0 ? `${kid.name} has no approved lessons — create and approve one below.` : `Only 1 lesson left for ${kid.name} — create more soon.`}
           </span>
         </div>
       )}
@@ -732,13 +655,18 @@ function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) 
           ))}
           {lessons.length === 0 && (
             <div style={{ padding: '32px 0', textAlign: 'center', color: C.ink3, fontSize: 13, background: C.card, borderRadius: 14, border: `1px solid ${C.line}` }}>
-              No lessons in queue. Generate one below.
+              No lessons in queue yet.
             </div>
           )}
         </div>
       </div>
 
-      <GenerateCard kid={kid} onAdded={onRefresh} />
+      <button
+        onClick={() => setCreating(true)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 14, background: C.ink, color: '#F6F3EC', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+      >
+        <span style={{ fontSize: 16 }}>✦</span> Create lesson for {kid.name}
+      </button>
 
       {preview && (
         <LessonPreviewModal
@@ -746,6 +674,14 @@ function KidColumn({ kid, onRefresh }: { kid: Profile; onRefresh: () => void }) 
           onClose={() => setPreview(null)}
           onApprove={() => { approveLesson(preview.id); setPreview(null); onRefresh() }}
           onReject={() => { deleteLesson(preview.id); setPreview(null); onRefresh() }}
+        />
+      )}
+
+      {creating && (
+        <CreateLessonModal
+          kid={kid}
+          onClose={() => setCreating(false)}
+          onAdded={() => { setCreating(false); onRefresh() }}
         />
       )}
     </div>
@@ -1049,10 +985,6 @@ export default function ParentPage() {
         </div>
       ) : (
         <div style={{ padding: '32px 28px 56px', display: 'grid', gridTemplateColumns: kids.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: 20, maxWidth: 1280, margin: '0 auto' }}>
-
-          <div style={{ gridColumn: '1 / -1' }}>
-            <TopicsPanel />
-          </div>
 
           {kids.map(kid => (
             <KidColumn key={kid.id} kid={kid} onRefresh={() => forceRender(n => n + 1)} />
